@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Money Internals — Interactive tools</title>
+<meta name="description" content="Interactive pages from the Money Internals YouTube channel. How financial systems work, from someone who builds them. Education, not financial advice.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0B0E13; --panel:#121821; --panel2:#161D27; --line:#232A33; --line2:#2C3540;
+  --txt:#E6EAF0; --mut:#8B94A3; --mut2:#5F6975;
+  --bid:#2EBD85; --ask:#F6465D;
+  --bid-dim:rgba(46,189,133,.10); --ask-dim:rgba(246,70,93,.10);
+  --accent:#2EBD85;
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --r:8px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--txt); font-family:var(--sans);
+  font-weight:500; font-size:16px; line-height:1.45; -webkit-font-smoothing:antialiased;
+  display:flex; flex-direction:column; min-height:100vh;
+}
+a{color:inherit; text-decoration:none}
+.tnum{font-variant-numeric:tabular-nums}
+
+/* ---------- top bar (mirrors the tool pages) ---------- */
+.topbar{
+  display:flex; align-items:center; gap:20px; padding:12px 20px;
+  border-bottom:1px solid var(--line); background:var(--panel);
+}
+.brand{display:flex; align-items:center; gap:10px}
+.brand .name{font-weight:500; font-size:17px; letter-spacing:.2px}
+.brand .name b{color:var(--accent); font-weight:500}
+.ticker{
+  font-family:var(--mono); font-size:14px; color:var(--mut);
+  padding:4px 10px; border:1px solid var(--line2); border-radius:6px; letter-spacing:.5px;
+}
+.yt{
+  margin-left:auto; font-family:var(--mono); font-size:13px; letter-spacing:.4px;
+  padding:7px 14px; border:1px solid var(--line2); border-radius:6px; color:var(--mut);
+  transition:.15s;
+}
+.yt:hover{border-color:var(--accent); color:var(--accent)}
+
+/* ---------- main ---------- */
+.main{flex:1; display:flex; justify-content:center; padding:9vh 24px 40px}
+.col{width:100%; max-width:720px}
+h1{font-size:clamp(26px,4vw,38px); font-weight:600; letter-spacing:-.01em; margin:0 0 10px}
+.sub{color:var(--mut); font-size:clamp(15px,1.6vw,18px); margin:0 0 42px; max-width:56ch}
+
+/* ---------- tool ladder ----------
+   Each tool is a level in a depth ladder: mono path on the left,
+   a bid-side depth bar that fills on hover. */
+.ladder-h{
+  display:grid; grid-template-columns:150px 1fr auto; gap:16px; padding:0 16px 8px;
+  font-family:var(--mono); font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:var(--mut2);
+}
+.ladder{border:1px solid var(--line); border-radius:var(--r); overflow:hidden; background:var(--panel)}
+.lvl{
+  position:relative; display:grid; grid-template-columns:150px 1fr auto; gap:16px;
+  align-items:center; padding:16px; border-bottom:1px solid var(--line);
+  transition:background .15s;
+}
+.lvl:last-child{border-bottom:none}
+.lvl::before{
+  content:""; position:absolute; inset:0 auto 0 0; width:0; background:var(--bid-dim);
+  transition:width .25s ease;
+}
+.lvl:hover::before{width:100%}
+.lvl>*{position:relative}
+.path{font-family:var(--mono); font-size:15px; color:var(--bid)}
+.lvl .t{font-size:16px}
+.lvl .t small{display:block; color:var(--mut); font-size:13.5px; font-weight:500; margin-top:2px}
+.epi{font-family:var(--mono); font-size:12px; color:var(--mut2); letter-spacing:.5px; white-space:nowrap}
+.lvl:hover .path{text-decoration:underline; text-underline-offset:3px}
+
+.note{
+  margin-top:26px; font-size:14px; color:var(--mut);
+}
+.note a{color:var(--bid)}
+.note a:hover{text-decoration:underline; text-underline-offset:3px}
+
+/* ---------- footer disclaimer (identical register to the tool pages) ---------- */
+.disclaimer{
+  padding:9px 20px; border-top:1px solid var(--line); background:var(--bg);
+  font-family:var(--mono); font-size:11.5px; color:var(--mut2); letter-spacing:.3px;
+  display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap;
+}
+
+@media (max-width:640px){
+  .ladder-h{grid-template-columns:1fr; gap:2px}
+  .ladder-h span:nth-child(n+2){display:none}
+  .lvl{grid-template-columns:1fr; gap:6px}
+  .epi{order:-1}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none !important}
+}
+a:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:4px}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <svg viewBox="18 12 44 56" width="22" height="28" aria-hidden="true">
+      <rect x="22" y="16" width="36" height="5" rx="1.5" fill="#F6465D"/>
+      <rect x="26" y="24" width="28" height="5" rx="1.5" fill="#F6465D"/>
+      <rect x="30" y="32" width="20" height="5" rx="1.5" fill="#F6465D"/>
+      <rect x="30" y="44" width="20" height="5" rx="1.5" fill="#2EBD85"/>
+      <rect x="26" y="52" width="28" height="5" rx="1.5" fill="#2EBD85"/>
+      <rect x="22" y="60" width="36" height="5" rx="1.5" fill="#2EBD85"/>
+    </svg>
+    <span class="name">Money<b>Internals</b></span>
+  </div>
+  <span class="ticker">TOOLS / INDEX</span>
+  <a class="yt" href="https://www.youtube.com/@MoneyInternals">WATCH ON YOUTUBE ↗</a>
+</div>
+
+<div class="main">
+  <div class="col">
+    <h1>The pages from the videos, live.</h1>
+    <p class="sub">Every Money Internals video is driven through one of these interactive pages.
+    They're working tools — open one, change the inputs, watch the machine respond.
+    Education, not financial advice.</p>
+
+    <div class="ladder-h"><span>Path</span><span>Tool</span><span>Episode</span></div>
+    <div class="ladder">
+      <a class="lvl" href="/orderbook/">
+        <span class="path">/orderbook</span>
+        <span class="t">The order book terminal
+          <small>Where prices actually come from — limit orders, market orders, the spread.</small>
+        </span>
+        <span class="epi">BUILD AN EXCHANGE · EP 1–2</span>
+      </a>
+      <a class="lvl" href="/pension/">
+        <span class="path">/pension</span>
+        <span class="t">Pension contribution machine
+          <small>Qualifying earnings, the 8% split, and what compounding does to it.</small>
+        </span>
+        <span class="epi">PENSION SERIES · 01</span>
+      </a>
+    </div>
+
+    <p class="note">Source for everything here is public — the exchange build lives at
+      <a href="https://github.com/MoneyInternals/mini-exchange">github.com/MoneyInternals/mini-exchange</a>,
+      this site at <a href="https://github.com/MoneyInternals/tools">github.com/MoneyInternals/tools</a>.</p>
+  </div>
+</div>
+
+<div class="disclaimer">
+  <span>MONEY INTERNALS · EDUCATION, NOT FINANCIAL ADVICE</span>
+  <span>FOR DECISIONS ABOUT YOUR OWN MONEY, SPEAK TO A REGULATED ADVISER</span>
+</div>
+
+</body>
+</html>
