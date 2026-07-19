@@ -141,6 +141,52 @@ h1{font-size:clamp(24px,2.8vw,38px); font-weight:600; letter-spacing:-.01em; mar
   *{animation:none !important; transition:none !important}
 }
 text{font-family:var(--mono)}
+
+/* ---------- mobile layer ----------
+   Never triggers at the 2560×1440 recording size — the recording set is
+   untouched. Phones get a scrolling vertical layout with a sticky stepper. */
+@media (max-width:760px){
+  html,body{height:auto}
+  body{overflow:auto; min-height:100vh}
+
+  .topbar{flex-wrap:wrap; gap:10px 14px; padding:10px 14px}
+  .ticker{font-size:11px; padding:3px 8px}
+  .stats{gap:14px; margin-left:auto}
+  .stat-h .v{font-size:16px}
+
+  .salary-bar{flex-wrap:wrap; gap:10px 14px; padding:12px 14px}
+  .salary-val{font-size:19px; min-width:0}
+  input[type=range]{flex-basis:100%; max-width:none; order:3; height:6px; margin:4px 0}
+  .presets{order:4; width:100%}
+  .presets button{flex:1; padding:10px 0}
+
+  .main{padding:16px 14px 8px}
+  h1{font-size:22px}
+  .sub{font-size:15px; margin-bottom:14px}
+
+  .stage{flex-direction:column; gap:16px}
+  .viz{display:block; flex:none}
+  .viz svg{width:100%; height:auto; aspect-ratio:1000/540}
+  .side{width:100%; gap:10px}
+  .card{padding:12px 14px}
+  .card .v{font-size:24px}
+  .card.hero .v{font-size:28px}
+  .toggle{align-self:stretch; text-align:center; padding:14px}
+
+  .stepper{
+    position:sticky; bottom:0; z-index:5;
+    grid-template-columns:auto 1fr; gap:8px 12px; padding:10px 14px;
+    box-shadow:0 -8px 24px rgba(0,0,0,.45);
+  }
+  .scn-caption{grid-column:1 / -1; grid-row:2; font-size:13.5px}
+  .scn-nav{justify-self:end}
+  .scn-nav button{padding:11px 20px; min-height:44px}
+
+  .disclaimer{
+    font-size:10.5px; padding:9px 14px;
+    padding-bottom:calc(9px + env(safe-area-inset-bottom));
+  }
+}
 </style>
 </head>
 <body>
@@ -241,7 +287,14 @@ function svgEl(tag, attrs){
 function makeSVG(w = 1000, h = 540){
   return svgEl('svg', {viewBox:`0 0 ${w} ${h}`, preserveAspectRatio:'xMidYMid meet'});
 }
+/* On phones the 1000-unit viewBox renders ~370px wide, so SVG text set for
+   the recording size becomes illegible. MOB.matches scales it back up.
+   Never true at recording resolution. */
+const MOB = matchMedia('(max-width:760px)');
+MOB.addEventListener('change', () => render());
+
 function txt(svg, x, y, str, size, fill, anchor = 'start', weight = 500){
+  if(MOB.matches) size = Math.round(size * 1.35);
   const t = svgEl('text', {x, y, 'font-size':size, fill, 'text-anchor':anchor, 'font-weight':weight});
   t.textContent = str;
   svg.appendChild(t);
@@ -469,10 +522,11 @@ function s7(){
       svg.appendChild(svgEl('line', {x1:x-2, y1:yTop, x2:x-2, y2:yBot,
         stroke:C.relief, 'stroke-width':3, 'stroke-dasharray':'7 6'}));
       /* badge: dark pill behind the label so it reads over any line */
-      const label = 'GAP ' + gbp(gap), bw = label.length * 13.5 + 28;
-      svg.appendChild(svgEl('rect', {x:x-24-bw, y:yMid-21, width:bw, height:42, rx:8,
+      const M = MOB.matches ? 1.35 : 1;
+      const label = 'GAP ' + gbp(gap), bw = label.length * 13.5 * M + 28;
+      svg.appendChild(svgEl('rect', {x:x-24-bw, y:yMid-21*M, width:bw, height:42*M, rx:8,
         fill:C.panel, stroke:C.relief, 'stroke-width':1.5}));
-      txt(svg, x-24-bw/2, yMid+8, label, 22, C.relief, 'middle', 700);
+      txt(svg, x-24-bw/2, yMid+8*M, label, 22, C.relief, 'middle', 700);
     }
   ));
   $('side').innerHTML =
