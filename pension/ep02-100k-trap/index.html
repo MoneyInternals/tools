@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The £100k Trap — Money Internals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0B0E13; --panel:#121821; --panel2:#171F2A; --line:#232A33; --line2:#2C3540;
+  --txt:#E6EAF0; --mut:#8B94A3; --mut2:#5C6675;
+  --bid:#2EBD85; --ask:#F6465D; --relief:#E8B33C; --employer:#4A9EDA;
+  --accent:#2EBD85;
+  --sans:'Inter',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+  --r:10px;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--txt); font-family:var(--sans); font-weight:500;
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.tnum{font-variant-numeric:tabular-nums}
+
+/* ---------- topbar ---------- */
+.topbar{
+  display:flex; align-items:center; gap:26px; padding:12px 20px;
+  border-bottom:1px solid var(--line); background:var(--panel);
+}
+.brand{display:flex; align-items:center; gap:10px}
+.brand .name{font-size:16px; letter-spacing:.3px}
+.brand .name b{color:var(--bid); font-weight:700}
+.ticker{font-family:var(--mono); font-size:12px; color:var(--mut); letter-spacing:2px}
+.stats{margin-left:auto; display:flex; gap:26px}
+.stat-h{display:flex; flex-direction:column; align-items:flex-end}
+.stat-h .k{font-size:10px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2)}
+.stat-h .v{font-family:var(--mono); font-size:17px; font-weight:700}
+#st-marg.hot{color:var(--ask)}
+#st-marg.cool{color:var(--bid)}
+
+/* ---------- layout ---------- */
+.stage{flex:1; display:grid; grid-template-columns:1fr 360px; gap:0; min-height:0}
+.main{display:flex; flex-direction:column; padding:22px 26px 10px; min-width:0}
+.main h1{font-size:26px; font-weight:700; letter-spacing:-.3px}
+.main .sub{color:var(--mut); font-size:15px; margin-top:6px; line-height:1.45; max-width:70ch}
+.viz{flex:1; margin-top:14px; min-height:0; display:flex; align-items:stretch}
+.viz svg{width:100%; height:100%}
+.side{
+  border-left:1px solid var(--line); background:var(--panel); padding:18px;
+  display:flex; flex-direction:column; gap:12px; overflow-y:auto;
+}
+.card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--r); padding:13px 16px}
+.card .k{font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:var(--mut2); margin-bottom:4px}
+.card .v{font-family:var(--mono); font-size:26px; font-weight:700; font-variant-numeric:tabular-nums}
+.card .v small{font-size:14px; color:var(--mut); font-weight:500}
+.card.hero{border-color:var(--bid)}
+.card.hero .v{color:var(--bid); font-size:31px}
+.card.bad{border-color:var(--ask)}
+.card.bad .v{color:var(--ask)}
+.card.gold .v{color:var(--relief)}
+.callout{
+  background:var(--panel2); border-left:3px solid var(--relief); border-radius:0 var(--r) var(--r) 0;
+  padding:12px 15px; font-size:14.5px; line-height:1.5;
+}
+.callout b{color:var(--relief)}
+.callout.warn{border-left-color:var(--ask)}
+.callout.warn b{color:var(--ask)}
+.callout.good{border-left-color:var(--bid)}
+.callout.good b{color:var(--bid)}
+
+/* ---------- controls strip ---------- */
+.controls{
+  display:flex; align-items:center; gap:22px; flex-wrap:wrap;
+  padding:12px 26px; border-top:1px solid var(--line); background:var(--panel);
+}
+.ctl{display:flex; align-items:center; gap:12px}
+.ctl .lbl{font-size:11px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2); white-space:nowrap}
+.ctl .val{font-family:var(--mono); font-size:16px; font-weight:700; min-width:96px}
+.ctl .val.green{color:var(--bid)}
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:220px; height:6px; border-radius:3px;
+  background:linear-gradient(to right, var(--accent) var(--fill,0%), var(--line2) var(--fill,0%));
+  outline:none; cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+  background:var(--txt); border:3px solid var(--accent); cursor:grab;
+}
+input[type=range]:focus-visible{outline:2px solid var(--txt); outline-offset:3px}
+#sacRange{background:linear-gradient(to right, var(--relief) var(--fill,0%), var(--line2) var(--fill,0%))}
+#sacRange::-webkit-slider-thumb{border-color:var(--relief)}
+.presets{display:flex; gap:6px}
+.presets button, .kids button{
+  font-family:var(--mono); font-size:12.5px; padding:7px 11px; border-radius:6px;
+  border:1px solid var(--line2); background:var(--panel2); color:var(--mut); cursor:pointer; transition:.15s;
+}
+.presets button:hover, .kids button:hover{border-color:var(--accent); color:var(--accent)}
+.presets button.active, .kids button.active{background:var(--accent); border-color:var(--accent); color:#0B0E13; font-weight:700}
+.ctl.hidden{display:none}
+
+/* ---------- stepper ---------- */
+.stepper{
+  display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:18px;
+  padding:11px 20px; border-top:1px solid var(--line); background:var(--panel);
+}
+.scn-count{font-family:var(--mono); font-size:14px; color:var(--mut); letter-spacing:.5px; white-space:nowrap}
+.scn-caption{font-size:15px}
+.scn-caption b{color:var(--accent)}
+.scn-nav{display:flex; gap:8px}
+.scn-nav button{
+  padding:9px 18px; border-radius:6px; border:1px solid var(--line2); background:var(--panel2);
+  color:var(--mut); font-size:14px; font-weight:500; cursor:pointer; transition:.15s;
+}
+.scn-nav button:hover:not(:disabled){border-color:var(--accent); color:var(--accent)}
+.scn-nav button:disabled{opacity:.35; cursor:not-allowed}
+.scn-nav .next{background:var(--accent); color:#0B0E13; border-color:var(--accent)}
+.scn-nav .next:hover:not(:disabled){filter:brightness(1.07); color:#0B0E13}
+
+/* ---------- footer disclaimer ---------- */
+.disclaimer{
+  padding:9px 20px; border-top:1px solid var(--line); background:var(--bg);
+  font-family:var(--mono); font-size:11.5px; color:var(--mut2); letter-spacing:.3px;
+  display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap;
+}
+
+/* ---------- animation ---------- */
+.rise{animation:rise .5s both}
+@keyframes rise{from{opacity:0; transform:translateY(12px)}to{opacity:1; transform:none}}
+.flash{animation:flash 1s}
+@keyframes flash{0%{background:rgba(246,70,93,.25)}100%{background:transparent}}
+@media (prefers-reduced-motion:reduce){*{animation:none !important; transition:none !important}}
+text{font-family:var(--mono)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <svg viewBox="18 12 44 56" width="22" height="28" aria-hidden="true">
+      <rect x="22" y="16" width="36" height="5" rx="1.5" fill="#F6465D"/>
+      <rect x="26" y="24" width="28" height="5" rx="1.5" fill="#F6465D"/>
+      <rect x="30" y="32" width="20" height="5" rx="1.5" fill="#F6465D"/>
+      <rect x="30" y="44" width="20" height="5" rx="1.5" fill="#2EBD85"/>
+      <rect x="26" y="52" width="28" height="5" rx="1.5" fill="#2EBD85"/>
+      <rect x="22" y="60" width="36" height="5" rx="1.5" fill="#2EBD85"/>
+    </svg>
+    <span class="name">Money<b>Internals</b></span>
+  </div>
+  <span class="ticker">TAX / THE £100K TRAP</span>
+  <span class="ticker" id="st-year" style="color:var(--relief)">TAX YEAR —</span>
+  <div class="stats">
+    <div class="stat-h"><span class="k">Adjusted net income</span><span class="v tnum" id="st-ani">—</span></div>
+    <div class="stat-h"><span class="k">Personal allowance</span><span class="v tnum" id="st-pa">—</span></div>
+    <div class="stat-h"><span class="k">Marginal rate</span><span class="v tnum" id="st-marg">—</span></div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="main">
+    <h1 id="title">—</h1>
+    <div class="sub" id="sub">—</div>
+    <div class="viz" id="viz"></div>
+  </div>
+  <div class="side" id="side"></div>
+</div>
+
+<div class="controls">
+  <div class="ctl">
+    <span class="lbl">Salary</span>
+    <input type="range" id="salary" min="80000" max="150000" step="500" value="100000" aria-label="Salary">
+    <span class="val tnum" id="salaryVal">—</span>
+  </div>
+  <div class="presets" id="presets">
+    <button data-s="99000">£99k</button>
+    <button data-s="100000">£100k</button>
+    <button data-s="101000">£101k</button>
+    <button data-s="110000">£110k</button>
+    <button data-s="125140">£125,140</button>
+  </div>
+  <div class="ctl hidden" id="sacCtl">
+    <span class="lbl">Into pension (sacrifice)</span>
+    <input type="range" id="sacRange" min="0" max="30000" step="500" value="0" aria-label="Pension sacrifice">
+    <span class="val tnum green" id="sacVal">£0</span>
+    <button id="sacSnap" style="font-family:var(--mono);font-size:12.5px;padding:7px 11px;border-radius:6px;border:1px solid var(--relief);background:transparent;color:var(--relief);cursor:pointer">ANI → £100,000</button>
+  </div>
+  <div class="ctl hidden" id="kidsCtl">
+    <span class="lbl">Children in funded childcare</span>
+    <span class="kids" id="kids" style="display:flex;gap:6px">
+      <button data-k="0">0</button><button data-k="1">1</button><button data-k="2" >2</button>
+    </span>
+  </div>
+</div>
+
+<div class="stepper">
+  <span class="scn-count" id="scn-count">—</span>
+  <span class="scn-caption" id="scn-caption">—</span>
+  <div class="scn-nav">
+    <button id="back">Back</button>
+    <button id="next" class="next">Next</button>
+  </div>
+</div>
+
+<div class="disclaimer">
+  <span>EDUCATION, NOT FINANCIAL ADVICE — FOR DECISIONS ABOUT YOUR MONEY, SPEAK TO A REGULATED ADVISER</span>
+  <span>2026/27 · rUK BANDS (SCOTLAND DIFFERS) · CHILDCARE VALUES ILLUSTRATIVE</span>
+</div>
+
+<script>
+/* ================= constants — re-verify each April ================= */
+const TAX_YEAR   = '2026/27';
+const PA_FULL    = 12570;     // personal allowance
+const TAPER_START= 100000;    // ANI where taper begins (£1 lost per £2)
+const PA_GONE    = 125140;    // ANI where allowance = 0
+const BASIC_BAND = 37700;     // basic-rate band width (taxable income)
+const HR_TOP     = 125140;    // additional rate above this taxable income
+const NI_PT      = 12570, NI_UEL = 50270, NI_MAIN = 0.08, NI_UPPER = 0.02;
+/* childcare — ILLUSTRATIVE. Funded hours: 30 hrs/wk × 38 wks/yr (term time, NOT 52 weeks).
+   Since Sept 2025 the 30 hours covers eligible working parents from 9 months to school age in England.
+   £8/hr is a deliberately conservative stand-in: 2026 national averages for standard nursery care run
+   c.£6–£10/hr (higher in London, higher for under-2s). Real value per child varies widely by provider,
+   region and age — this is why every card and the VO label these figures illustrative. */
+const CC_HOURLY  = 8;                          // £/hr — conservative mid-range stand-in
+const CC_FUNDED  = 30 * 38 * CC_HOURLY;        // £9,120/child/yr
+const CC_TFC     = 2000;                       // Tax-Free Childcare top-up cap /child/yr (statutory)
+const CC_PER_CHILD = CC_FUNDED + CC_TFC;       // £11,120
+
+/* ================= tax engine ================= */
+function paFor(ani){ return Math.max(0, PA_FULL - Math.max(0, ani - TAPER_START) / 2); }
+function incomeTax(gross, ani = gross){
+  const taxable = Math.max(0, gross - paFor(ani));
+  return 0.20 * Math.min(taxable, BASIC_BAND)
+       + 0.40 * Math.max(0, Math.min(taxable, HR_TOP) - BASIC_BAND)
+       + 0.45 * Math.max(0, taxable - HR_TOP);
+}
+function nics(gross){
+  return NI_MAIN * Math.max(0, Math.min(gross, NI_UEL) - NI_PT)
+       + NI_UPPER * Math.max(0, gross - NI_UEL);
+}
+function net(gross){ return gross - incomeTax(gross) - nics(gross); }
+function marginalRate(gross){ return 1 - (net(gross) - net(gross - 1)); } /* last-pound basis: 42% at exactly £100,000; 62% from £100,001 */
+/* salary sacrifice: gross falls, ANI = new gross */
+function afterSac(salary, sac){
+  const g = salary - sac;
+  return { gross:g, ani:g, takehome:net(g), pot:sac };
+}
+function ccSupport(ani, kids){ return ani <= 100000 ? kids * CC_PER_CHILD : 0; }
+
+const gbp  = v => (v < 0 ? '−£' : '£') + Math.round(Math.abs(v)).toLocaleString('en-GB');
+const pct  = v => Math.round(v * 100) + '%';
+
+/* ================= svg helpers ================= */
+const NS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs){ const e = document.createElementNS(NS, tag); for(const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+function makeSVG(){ return svgEl('svg', {viewBox:'0 0 1000 540', preserveAspectRatio:'xMidYMid meet'}); }
+function txt(svg, x, y, str, size, fill, anchor = 'start', weight = 500){
+  const t = svgEl('text', {x, y, 'font-size':size, fill, 'text-anchor':anchor, 'font-weight':weight});
+  t.textContent = str; svg.appendChild(t); return t;
+}
+const C = { bg:'#0B0E13', panel:'#121821', line:'#232A33', txt:'#E6EAF0', mut:'#8B94A3',
+            bid:'#2EBD85', ask:'#F6465D', relief:'#E8B33C', employer:'#4A9EDA' };
+
+/* ---- generic income-axis line chart, £80k–£150k ---- */
+function incomeChart(fn, yMin, yMax, colorFn, marker, annotate){
+  const svg = makeSVG();
+  const X0=110, X1=800, Y0=470, Y1=40, LO=80000, HI=150000;
+  const xs = inc => X0 + (X1-X0)*(inc-LO)/(HI-LO);
+  const ys = v  => Y0 - (Y0-Y1)*(v-yMin)/(yMax-yMin);
+  for(let g=0; g<=4; g++){
+    const v = yMin + (yMax-yMin)*g/4, y = ys(v);
+    svg.appendChild(svgEl('line',{x1:X0,y1:y,x2:X1,y2:y,stroke:C.line,'stroke-width':1}));
+    txt(svg, X0-12, y+5, gbp(v), 13, C.mut, 'end');
+  }
+  [80000,100000,125140,150000].forEach(t=>{
+    txt(svg, xs(t), Y0+30, gbp(t), 13, t===100000||t===125140?C.relief:C.mut, 'middle');
+    if(t===100000||t===125140)
+      svg.appendChild(svgEl('line',{x1:xs(t),y1:Y0,x2:xs(t),y2:Y1,stroke:C.relief,'stroke-width':1,'stroke-dasharray':'3 6',opacity:.5}));
+  });
+  /* draw as coloured segments so the trap band can burn red */
+  let prev = null;
+  for(let inc=LO; inc<=HI; inc+=250){
+    const p = {x:xs(inc), y:ys(fn(inc))};
+    if(prev) svg.appendChild(svgEl('line',{x1:prev.x,y1:prev.y,x2:p.x,y2:p.y,
+      stroke:colorFn(inc),'stroke-width':4,'stroke-linecap':'round'}));
+    prev = p;
+  }
+  if(marker != null){
+    const mx = xs(marker), my = ys(fn(marker));
+    svg.appendChild(svgEl('circle',{cx:mx,cy:my,r:8,fill:'none',stroke:C.txt,'stroke-width':3}));
+    svg.appendChild(svgEl('circle',{cx:mx,cy:my,r:3.5,fill:C.txt}));
+  }
+  if(annotate) annotate(svg, xs, ys);
+  return svg;
+}
+
+/* ================= state ================= */
+let step = 0, salary = 100000, sac = 0, kids = 0, showFreeze = false, showNext = false;
+const $ = id => document.getElementById(id);
+
+/* ---------- controls ---------- */
+function setSalary(v, rerender = true){
+  salary = v; $('salary').value = v;
+  $('salaryVal').textContent = gbp(v);
+  $('salary').style.setProperty('--fill', (v-80000)/(150000-80000)*100 + '%');
+  [...$('presets').children].forEach(b => b.classList.toggle('active', +b.dataset.s === v));
+  if(rerender) render();
+}
+function setSac(v, rerender = true){
+  sac = Math.max(0, Math.min(30000, v)); $('sacRange').value = sac;
+  $('sacVal').textContent = gbp(sac);
+  $('sacRange').style.setProperty('--fill', sac/30000*100 + '%');
+  if(rerender) render();
+}
+function setKids(v, rerender = true){
+  kids = v;
+  [...$('kids').children].forEach(b => b.classList.toggle('active', +b.dataset.k === v));
+  if(rerender) render();
+}
+$('salary').addEventListener('input', e => setSalary(+e.target.value));
+$('presets').addEventListener('click', e => { if(e.target.dataset.s){ setSalary(+e.target.dataset.s); e.target.blur(); }});
+$('sacRange').addEventListener('input', e => setSac(+e.target.value));
+$('sacSnap').addEventListener('click', e => { setSac(Math.max(0, salary - 100000)); e.target.blur(); });
+$('kids').addEventListener('click', e => { if(e.target.dataset.k !== undefined){ setKids(+e.target.dataset.k); e.target.blur(); }});
+
+/* ---------- side-panel builders ---------- */
+function card(k, v, cls = '', sub = ''){
+  return `<div class="card ${cls} rise"><div class="k">${k}</div><div class="v">${v}${sub?` <small>${sub}</small>`:''}</div></div>`;
+}
+
+/* ================= STATE 1 — the rise ================= */
+function s1(){
+  const kept1k = net(salary) - net(salary - 1000);
+  const taken1k = 1000 - kept1k;
+  const m = marginalRate(salary);
+  $('title').textContent = 'The top £1,000 of your salary: who keeps it?';
+  $('sub').textContent = 'The bar splits the top £1,000 of your salary — the slice taxed at the highest rate you pay. Drag the slider and watch that slice the moment your salary goes past £100,000.';
+  const svg = makeSVG();
+  const X0=110, W=780, Y=200, H=120;
+  const kw = W * kept1k/1000;
+  svg.appendChild(svgEl('rect',{x:X0, y:Y, width:kw, height:H, rx:8, fill:C.bid}));
+  svg.appendChild(svgEl('rect',{x:X0+kw+6, y:Y, width:W-kw-6, height:H, rx:8, fill:C.ask}));
+  txt(svg, X0+kw/2, Y+H/2+9, gbp(kept1k), 30, '#0B0E13', 'middle', 700);
+  txt(svg, X0+kw+(W-kw)/2, Y+H/2+9, gbp(taken1k), 30, '#0B0E13', 'middle', 700);
+  txt(svg, X0, Y-24, 'YOU KEEP', 14, C.bid, 'start', 700);
+  txt(svg, X0+W, Y-24, 'TAX + NI', 14, C.ask, 'end', 700);
+  txt(svg, X0+W/2, Y+H+70, 'marginal deduction rate: ' + pct(m), 22, m>0.5?C.ask:C.mut, 'middle', 700);
+  $('viz').replaceChildren(svg);
+  const inTrap = salary > TAPER_START && salary <= PA_GONE;
+  $('side').innerHTML =
+    card('Take-home / yr', gbp(net(salary)), 'hero') +
+    card('Of your top £1,000', gbp(kept1k), inTrap ? 'bad' : '', 'kept') +
+    card('Marginal rate', pct(m), inTrap ? 'bad' : '') +
+    (inTrap
+      ? `<div class="callout warn">Past £100,000 the machine takes <b>62p of every extra £1</b>. Nothing on your payslip names this rate. It isn't in any band table.</div>`
+      : `<div class="callout">Push the salary past <b>£100,000</b> and watch the green bar shrink — the trap has no label on your payslip.</div>`);
+}
+
+/* ================= STATE 2 — the vanishing allowance ================= */
+function s2(){
+  const pa = paFor(salary);
+  const lost = PA_FULL - pa;
+  $('title').textContent = 'Where the 60% comes from: your allowance is dissolving';
+  $('sub').textContent = 'Above £100,000 of adjusted net income you lose £1 of personal allowance for every £2 you earn. That lost slice becomes taxable at 40% — so each extra £1 destroys 50p of allowance and costs you a further 20p, on top of the 40p you already paid on the £1 itself.';
+  const svg = makeSVG();
+  const X0=110, W=780, Y=190, H=110;
+  const kw = W * pa/PA_FULL;
+  svg.appendChild(svgEl('rect',{x:X0, y:Y, width:W, height:H, rx:8, fill:'none', stroke:C.line, 'stroke-width':2}));
+  if(pa>0) svg.appendChild(svgEl('rect',{x:X0, y:Y, width:kw, height:H, rx:8, fill:C.relief}));
+  if(pa>0) txt(svg, X0+kw/2, Y+H/2+8, gbp(pa), 26, '#0B0E13', 'middle', 700);
+  if(lost>0) txt(svg, X0+kw+(W-kw)/2, Y+H/2+8, gbp(lost)+' GONE', 22, C.ask, 'middle', 700);
+  txt(svg, X0, Y-24, 'PERSONAL ALLOWANCE — TAX-FREE SLICE', 14, C.relief, 'start', 700);
+  if(showFreeze){
+    const bw = 560, bh = 74, bx = X0 + (W - bw)/2, by = Y + H + 88;
+    const g = svgEl('g', {class:'rise'});
+    g.appendChild(svgEl('rect',{x:bx, y:by, width:bw, height:bh, rx:9,
+      fill:'#171F2A', stroke:C.relief, 'stroke-width':2}));
+    g.appendChild(svgEl('rect',{x:bx, y:by, width:4, height:bh, rx:2, fill:C.relief}));
+    const t1 = svgEl('text',{x:bx+20, y:by+31, 'font-size':19, fill:C.relief, 'font-weight':700});
+    t1.textContent = 'FROZEN AT £12,570 SINCE APRIL 2021';
+    g.appendChild(t1);
+    const t2 = svgEl('text',{x:bx+20, y:by+56, 'font-size':14, fill:C.mut});
+    t2.textContent = 'frozen again until April 2031 — ten years, while wages rise';
+    g.appendChild(t2);
+    svg.appendChild(g);
+  }
+  txt(svg, X0+W/2, Y+H+64, `£1 of allowance lost per £2 over ${gbp(TAPER_START)} · gone entirely at ${gbp(PA_GONE)}`, 17, C.mut, 'middle');
+  $('viz').replaceChildren(svg);
+  $('side').innerHTML =
+    card('Allowance remaining', gbp(pa), pa===0?'bad':'gold') +
+    card('Allowance lost', gbp(lost), lost>0?'bad':'') +
+    card('Extra tax from the loss', gbp(lost*0.40), lost>0?'bad':'', '/ yr') +
+    `<div class="callout">Each extra £1 pays <b>40p</b> itself — and destroys 50p of allowance, which is then taxed at 40%: another <b>20p</b>. 40 + 20 = <b>60%</b>. Add 2% National Insurance: <b>62%</b> on every pound between £100,000 and £125,140.</div>`;
+}
+
+/* ================= STATE 3 — the hump ================= */
+function s3(){
+  $('title').textContent = 'The strangest curve in UK tax';
+  $('sub').textContent = 'Marginal deduction rate (income tax + employee NI) across the salary range. Find the hump.';
+  const fn = inc => marginalRate(inc)*100;
+  const colorFn = inc => (inc>TAPER_START && inc<=PA_GONE) ? C.ask : C.bid;
+  const svg = incomeChart(fn, 0, 80, colorFn, salary, (s, xs, ys)=>{
+    txt(s, xs(112500), ys(62)-18, '62%', 24, C.ask, 'middle', 700);
+    txt(s, xs(140000), ys(47)-16, '47%', 18, C.mut, 'middle', 700);
+    txt(s, xs(88000),  ys(42)-16, '42%', 18, C.mut, 'middle', 700);
+    /* flat-forever marker: the 47% line never rises again, however far right you go */
+    s.appendChild(svgEl('line',{x1:xs(148000), y1:ys(47), x2:xs(150000)+34, y2:ys(47),
+      stroke:C.mut2 || '#5C6675', 'stroke-width':3, 'stroke-dasharray':'5 5'}));
+    txt(s, xs(150000)+40, ys(47)+5, '47% FOREVER →', 14, '#5C6675', 'start', 700);
+    txt(s, xs(150000)+40, ys(47)+25, '£200k · £500k · £1m', 12.5, '#5C6675', 'start');
+  });
+  $('viz').replaceChildren(svg);
+  $('side').innerHTML =
+    card('Your marginal rate', pct(marginalRate(salary)), (salary>TAPER_START&&salary<=PA_GONE)?'bad':'') +
+    card('Rate at £110,000', '62%', 'bad') +
+    card('Rate at £130,000+', '47%') +
+    `<div class="callout warn">Someone on £110,000 faces a <b>higher marginal rate</b> than someone on £500,000. The trap is a hump, not a staircase — and it isn't printed in any official band table.</div>`;
+}
+
+/* ================= STATE 4 — the escape valve ================= */
+function s4(){
+  const a = afterSac(salary, sac);
+  const noSac = afterSac(salary, 0);
+  const cost = noSac.takehome - a.takehome;
+  const costPer = sac>0 ? cost/sac : 0;
+  $('title').textContent = 'The escape valve: watch the allowance come back';
+  $('sub').textContent = 'Salary sacrifice routes pay into your pension before tax and NI ever see it — and before the £100,000 test is applied. Drag the gold slider. This page shows what the machine does; it doesn\u2019t tell you what to do.';
+  const svg = makeSVG();
+  const X0=110, W=780;
+  /* bar 1: gross split */
+  const yA=120, hA=88;
+  const wSac = W*sac/salary, wRest = W-wSac;
+  svg.appendChild(svgEl('rect',{x:X0, y:yA, width:wRest, height:hA, rx:8, fill:'#263140'}));
+  if(sac>0) svg.appendChild(svgEl('rect',{x:X0+wRest+4, y:yA, width:Math.max(0,wSac-4), height:hA, rx:8, fill:C.relief}));
+  txt(svg, X0, yA-20, 'SALARY '+gbp(salary), 14, C.mut, 'start', 700);
+  txt(svg, X0+wRest/2, yA+hA/2+7, 'TAXED AS '+gbp(a.gross), 19, C.txt, 'middle', 700);
+  if(sac>0) txt(svg, X0+wRest+wSac/2, yA+hA/2+7, gbp(sac), 18, '#0B0E13', 'middle', 700);
+  /* bar 2: allowance */
+  const yB=300, hB=88, pa=paFor(a.ani), kw=W*pa/PA_FULL;
+  svg.appendChild(svgEl('rect',{x:X0, y:yB, width:W, height:hB, rx:8, fill:'none', stroke:C.line,'stroke-width':2}));
+  if(pa>0) svg.appendChild(svgEl('rect',{x:X0, y:yB, width:kw, height:hB, rx:8, fill:C.relief}));
+  txt(svg, X0, yB-20, 'PERSONAL ALLOWANCE AT THIS ADJUSTED NET INCOME', 14, C.relief, 'start', 700);
+  if(pa>0) txt(svg, X0+kw/2, yB+hB/2+7, gbp(pa), 22, '#0B0E13', 'middle', 700);
+  txt(svg, X0+W/2, yB+hB+56, 'adjusted net income: '+gbp(a.ani), 19, a.ani<=100000?C.bid:C.ask, 'middle', 700);
+  $('viz').replaceChildren(svg);
+  $('side').innerHTML =
+    card('Into the pension pot', gbp(a.pot), 'gold', '/ yr') +
+    card('Take-home', gbp(a.takehome), 'hero') +
+    card('Take-home cost of that', gbp(cost)) +
+    (sac>0 ? card('Cost per £1 into the pot', '£'+costPer.toFixed(2), 'hero') : '') +
+    (sac>0 && a.ani<=100000
+      ? `<div class="callout good">Inside the trap, each £1 that goes into the pot only reduced take-home by about <b>38p</b>. The other 62p was leaving anyway.</div>`
+      : `<div class="callout">Drag the gold slider and watch two things at once: the pot filling, and the allowance bar refilling as adjusted net income falls back through £100,000.</div>`);
+}
+
+/* ================= STATE 5 — the cliff ================= */
+function s5(){
+  const fn = inc => net(inc) + ccSupport(inc, kids);
+  const colorFn = inc => inc>100000 && kids>0 ? C.ask : C.bid;
+  $('title').textContent = kids>0 ? 'Now add children. This is not a taper — it\u2019s a cliff' : 'Now add children (use the selector below)';
+  $('sub').textContent = 'Cash position: take-home plus childcare support (funded hours + Tax-Free Childcare top-up, illustrative values). The £100,000 test is per parent, on adjusted net income — and it has no taper. £1 over has the same effect as £25,000 over.';
+  const yMax = net(150000) + kids*CC_PER_CHILD + 6000;
+  const svg = incomeChart(fn, 55000, yMax, colorFn, salary, (s, xs, ys)=>{
+    if(kids>0){
+      const top = fn(100000), bot = fn(100001);
+      s.appendChild(svgEl('line',{x1:xs(100000)+2, y1:ys(top), x2:xs(100000)+2, y2:ys(bot),
+        stroke:C.ask,'stroke-width':5,'stroke-dasharray':'2 5'}));
+      txt(s, xs(100000)+14, (ys(top)+ys(bot))/2+6, '−'+gbp(kids*CC_PER_CHILD)+' AT £100,001', 19, C.ask, 'start', 700);
+    }
+  });
+  $('viz').replaceChildren(svg);
+  const support = ccSupport(salary, kids);
+  /* all-in position vs standing still at £100,000 — same basis as State 6 */
+  const base100 = net(100000) + kids*CC_PER_CHILD;
+  const allIn = (net(salary) + support) - base100;
+  /* break-even: salary at which take-home alone matches take-home + support at £100,000 */
+  let breakEven = null;
+  if(kids > 0){
+    let lo = 100001, hi = 400000;
+    for(let i=0; i<200; i++){ const mid = (lo+hi)/2; if(net(mid) < base100){ lo = mid; } else { hi = mid; } }
+    breakEven = hi;
+  }
+  $('side').innerHTML =
+    card('Children', kids) +
+    card('Support at stake', gbp(kids*CC_PER_CHILD), kids?'gold':'', kids?`= ${kids} × ${gbp(CC_PER_CHILD)}`:'') +
+    card('Support kept at this salary', gbp(support), support>0?'hero':'bad', '/ yr · illustrative') +
+    (kids>0 ? card('All-in vs £100,000', (allIn>=0?'+':'')+gbp(allIn), allIn<0?'bad':'hero') : '') +
+    (breakEven ? card('Break-even salary', gbp(breakEven), 'bad', 'to recover it') : '') +
+    (kids>0
+      ? `<div class="callout warn">Funded hours (~${gbp(CC_FUNDED)}) + Tax-Free Childcare (up to ${gbp(CC_TFC)}) per child — <b>${gbp(CC_PER_CHILD)}</b> each, <b>${gbp(kids*CC_PER_CHILD)}</b> for ${kids}. One parent at <b>£100,001</b> and it's all gone; only the universal 15 hours for 3–4-year-olds survives. Extra take-home offsets some of it — but you'd need <b>${gbp(breakEven)}</b> to stand where you stood at £100,000.</div>`
+      : `<div class="callout">Select 1 or 2 children below, then drag the salary through £100,000 and watch the line.</div>`);
+}
+
+/* ================= STATE 6 — the rescue (payoff) ================= */
+function s6(){
+  const a = afterSac(salary, sac);
+  const base = net(100000) + ccSupport(100000, kids);       // the £100,000 benchmark
+  const now  = a.takehome + ccSupport(a.ani, kids);
+  const diff = now - base;
+  $('title').textContent = 'One slider undoes the whole thing';
+  $('sub').textContent = 'Same salary. Drag pay into the pension until adjusted net income drops back through £100,000 — the allowance returns, the childcare support returns, and the pot fills with money that was mostly vanishing anyway.';
+  const svg = makeSVG();
+  const rows = [
+    ['Take-home', a.takehome, C.txt],
+    ['Childcare support (illus.)', ccSupport(a.ani, kids), ccSupport(a.ani,kids)>0?C.bid:C.ask],
+    ['Into the pension pot', a.pot, C.relief],
+  ];
+  const maxV = Math.max(net(150000), base) * 1.05;
+  rows.forEach((r,i)=>{
+    const y = 110 + i*130, w = 700*r[1]/maxV;
+    txt(svg, 110, y-14, r[0].toUpperCase(), 14, C.mut, 'start', 700);
+    svg.appendChild(svgEl('rect',{x:110, y, width:Math.max(w,2), height:74, rx:8, fill:r[2]===C.txt?'#263140':r[2]}));
+    txt(svg, 122+Math.max(w,2), y+45, gbp(r[1]), 22, r[2], 'start', 700);
+  });
+  $('viz').replaceChildren(svg);
+  $('side').innerHTML =
+    card('Adjusted net income', gbp(a.ani), a.ani<=100000?'hero':'bad') +
+    card('Support kept at this ANI', gbp(ccSupport(a.ani, kids)), ccSupport(a.ani,kids)>0?'hero':'bad', '/ yr · illustrative') +
+    card('All-in vs £100,000', (diff>=0?'+':'')+gbp(diff), diff>=-1?'hero':'bad') +
+    card('And in the pot', gbp(a.pot), 'gold', '/ yr') +
+    (a.ani<=100000 && sac>0
+      ? `<div class="callout good">Adjusted net income <b>${gbp(a.ani)}</b>: same cash position as £100,000, childcare intact — plus <b>${gbp(a.pot)}</b> in the pot. Nothing here told you what to do. That's just what the machine does with the same money, routed differently.</div>`
+      : `<div class="callout warn">At this income with ${kids||'no'} ${kids===1?'child':'children'}, the all-in position against £100,000 is <b>${gbp(diff)}</b>. Drag the gold slider — or press <b>ANI → £100,000</b> — and watch every number flip.</div>`);
+}
+
+
+/* ================= STATE 7 — two routes + next episode ================= */
+function s7(){
+  const a = afterSac(110000, 10000);
+  const noSac = { takehome: net(110000), support: ccSupport(110000, 2), pot: 0 };
+  const yesSac = { takehome: a.takehome, support: ccSupport(a.ani, 2), pot: 10000 };
+  $('title').textContent = showNext ? 'Which pension are you actually in?'
+                                    : 'Same salary, same money — two routes';
+  $('sub').textContent = showNext
+    ? 'Everything in this video assumed salary sacrifice, where the money never reaches you. Most people are not in that scheme. Press N to close.'
+    : '£110,000, two children in funded childcare. The only difference between these two columns is which side of £100,000 the adjusted net income lands. Press N for what comes next.';
+
+  const svg = makeSVG();
+  if(!showNext){
+    const cols = [
+      {t:'TAKEN AS SALARY',  ani:110000, d:noSac,  col:C.ask},
+      {t:'£10,000 SACRIFICED', ani:100000, d:yesSac, col:C.bid},
+    ];
+    cols.forEach((c,i)=>{
+      const x = 120 + i*440, w = 380;
+      svg.appendChild(svgEl('rect',{x, y:60, width:w, height:400, rx:12,
+        fill:'#171F2A', stroke:c.col, 'stroke-width':2}));
+      txt(svg, x+w/2, 96, c.t, 16, c.col, 'middle', 700);
+      txt(svg, x+w/2, 124, 'adjusted net income ' + gbp(c.ani), 13, C.mut, 'middle');
+      const rows = [
+        ['Take-home', gbp(c.d.takehome), C.txt],
+        ['Childcare support', c.d.support ? gbp(c.d.support) : 'GONE', c.d.support ? C.bid : C.ask],
+        ['Into the pension pot', c.d.pot ? gbp(c.d.pot) : '—', c.d.pot ? C.relief : C.mut2],
+      ];
+      rows.forEach((r,j)=>{
+        const y = 176 + j*94;
+        txt(svg, x+24, y, r[0].toUpperCase(), 12, C.mut2, 'start', 700);
+        txt(svg, x+24, y+38, r[1], 30, r[2], 'start', 700);
+      });
+      const total = c.d.takehome + c.d.support;
+      txt(svg, x+24, 432, 'CASH + SUPPORT  ' + gbp(total), 15, C.mut, 'start', 700);
+    });
+    txt(svg, 500, 492, 'Neither column is a recommendation — pension money is locked away for decades.', 14, C.mut2, 'middle');
+  } else {
+    const rows = [
+      ['SALARY SACRIFICE', 'Gross pay given up — employer pays the pension', 'No income tax, no NI', 'Nothing to claim', false],
+      ['NET PAY ARRANGEMENT', 'Deducted from gross before income tax', 'Full relief automatic', 'Nothing to claim', false],
+      ['RELIEF AT SOURCE', 'Paid from take-home — provider reclaims basic 20%', 'Higher-rate slice NOT automatic', 'You must claim it', true],
+    ];
+    txt(svg, 120, 54, 'THREE WAYS MONEY REACHES A UK PENSION', 15, C.mut2, 'start', 700);
+    rows.forEach((r,i)=>{
+      const y = 84 + i*118, hot = r[4];
+      svg.appendChild(svgEl('rect',{x:120, y, width:760, height:100, rx:10,
+        fill:'#171F2A', stroke:hot?C.relief:C.line, 'stroke-width':hot?2:1}));
+      if(hot) svg.appendChild(svgEl('rect',{x:120, y, width:5, height:100, rx:2, fill:C.relief}));
+      txt(svg, 148, y+32, r[0], 17, hot?C.relief:C.txt, 'start', 700);
+      txt(svg, 148, y+58, r[1], 14, C.mut, 'start');
+      txt(svg, 148, y+82, r[2], 13, hot?C.relief:C.mut2, 'start', 700);
+      txt(svg, 860, y+56, r[3], 15, hot?C.relief:C.mut2, 'end', 700);
+    });
+    txt(svg, 500, 470, 'NEXT EPISODE — the relief you already earned, and probably did not collect', 18, C.bid, 'middle', 700);
+  }
+  $('viz').replaceChildren(svg);
+
+  $('side').innerHTML = showNext
+    ? card('Claimed automatically', '20%', 'gold', 'basic rate') +
+      card('Yours to claim', '20%', 'bad', 'higher rate') +
+      `<div class="callout"><b>Relief at source</b> is the most common workplace arrangement. If that is yours and you pay higher-rate tax, the top slice of relief does not arrive on its own.</div>`
+    : card('Difference in take-home', gbp(noSac.takehome - yesSac.takehome), '', '/ yr') +
+      card('Difference in support', gbp(yesSac.support - noSac.support), 'hero', '/ yr') +
+      card('Difference in the pot', gbp(yesSac.pot), 'gold', '/ yr') +
+      `<div class="callout">Same salary, same employer, same year. <b>One number moved</b> — adjusted net income — and it moved because of where the money was routed, not how much of it there was.</div>`;
+}
+
+/* ================= stepper ================= */
+const states = [
+  {fn:s1, cap:'<b>State 1</b> — the top £1,000 of your salary: the split, live', setup:()=>{ setSalary(100000,false); }},
+  {fn:s2, cap:'<b>State 2</b> — the vanishing allowance: £1 lost per £2 over £100k <span style=\"color:#5C6675\">· press F for the freeze card</span>', setup:()=>{ if(salary<100000) setSalary(110000,false); }},
+  {fn:s3, cap:'<b>State 3</b> — the hump: a higher marginal rate at £110k than at £500k', setup:()=>{ setSalary(110000,false); }},
+  {fn:s4, cap:'<b>State 4</b> — the escape valve: pay routed to the pot before the test', setup:()=>{ setSalary(110000,false); setSac(0,false); }, sac:true},
+  {fn:s5, cap:'<b>State 5</b> — the childcare cliff: no taper, per parent, at £100,001', setup:()=>{ setSalary(100000,false); setSac(0,false); if(kids===0) setKids(1,false); }, kids:true},
+  {fn:s6, cap:'<b>State 6</b> — the rescue: allowance back, childcare back, pot full', setup:()=>{ setSalary(110000,false); setSac(0,false); if(kids===0) setKids(2,false); }, sac:true, kids:true},
+  {fn:s7, cap:'<b>State 7</b> — the fork, and what is next <span style="color:#5C6675">· press N for the next-episode card</span>', setup:()=>{ setSalary(110000,false); setSac(0,false); setKids(2,false); }},
+];
+
+function render(){
+  const a = afterSac(salary, sac);
+  const useSac = !!states[step].sac;
+  const ani = useSac ? a.ani : salary;
+  $('st-ani').textContent = gbp(ani);
+  $('st-pa').textContent = gbp(paFor(ani));
+  const m = marginalRate(useSac ? a.gross : salary);
+  const el = $('st-marg');
+  el.textContent = pct(m);
+  el.className = 'v tnum ' + (m > 0.5 ? 'hot' : 'cool');
+  states[step].fn();
+  $('scn-caption').innerHTML = states[step].cap;
+  $('scn-count').textContent = `${step+1} / ${states.length}`;
+  $('back').disabled = step === 0;
+  $('next').disabled = step === states.length - 1;
+}
+
+function goTo(n){
+  step = Math.max(0, Math.min(states.length - 1, n));
+  const st = states[step];
+  $('sacCtl').classList.toggle('hidden', !st.sac);
+  $('kidsCtl').classList.toggle('hidden', !st.kids);
+  showFreeze = false; showNext = false;
+  if(st.setup) st.setup();
+  render();
+}
+$('next').addEventListener('click', () => { goTo(step + 1); $('next').blur(); });
+$('back').addEventListener('click', () => { goTo(step - 1); $('back').blur(); });
+document.addEventListener('keydown', e => {
+  const a = document.activeElement;
+  if(a && (a.tagName === 'INPUT' || a.tagName === 'BUTTON')) return;
+  if(e.key === 'ArrowRight'){ e.preventDefault(); goTo(step + 1); }
+  if(e.key === 'ArrowLeft'){  e.preventDefault(); goTo(step - 1); }
+  if(/^[1-7]$/.test(e.key))   goTo(+e.key - 1);
+  if(e.key === 'f' || e.key === 'F'){ showFreeze = !showFreeze; render(); }
+  if(e.key === 'n' || e.key === 'N'){ showNext = !showNext; render(); }
+  if(e.key === '7')                 { goTo(6); }
+});
+
+/* ---- boot ---- */
+document.getElementById('st-year').textContent = 'TAX YEAR ' + TAX_YEAR;
+setKids(0, false);
+goTo(0);
+</script>
+</body>
+</html>
