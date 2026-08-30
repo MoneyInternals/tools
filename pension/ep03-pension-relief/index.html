@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The 20% Nobody Claims — Money Internals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0B0E13; --panel:#121821; --panel2:#171F2A; --line:#232A33; --line2:#2C3540;
+  --txt:#E6EAF0; --mut:#8B94A3; --mut2:#5C6675;
+  --bid:#2EBD85; --ask:#F6465D; --relief:#E8B33C; --employer:#4A9EDA;
+  --accent:#2EBD85;
+  --sans:'Inter',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+  --r:10px;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--txt); font-family:var(--sans); font-weight:500;
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.tnum{font-variant-numeric:tabular-nums}
+
+/* ---------- topbar ---------- */
+.topbar{
+  display:flex; align-items:center; gap:26px; padding:12px 20px;
+  border-bottom:1px solid var(--line); background:var(--panel);
+}
+.brand{display:flex; align-items:center; gap:10px}
+.brand .name{font-size:16px; letter-spacing:.3px}
+.brand .name b{color:var(--bid); font-weight:700}
+.ticker{font-family:var(--mono); font-size:12px; color:var(--mut); letter-spacing:2px}
+.stats{margin-left:auto; display:flex; gap:26px}
+.stat-h{display:flex; flex-direction:column; align-items:flex-end}
+.stat-h .k{font-size:10px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2)}
+.stat-h .v{font-family:var(--mono); font-size:17px; font-weight:700}
+#st-relief.pending{color:var(--ask)}
+#st-relief.paid{color:var(--bid)}
+
+/* ---------- layout ---------- */
+.stage{flex:1; display:grid; grid-template-columns:1fr 360px; min-height:0}
+.main{display:flex; flex-direction:column; padding:22px 26px 10px; min-width:0}
+.main h1{font-size:26px; font-weight:700; letter-spacing:-.3px}
+.main .sub{color:var(--mut); font-size:15px; margin-top:6px; line-height:1.45; max-width:70ch}
+.viz{flex:1; margin-top:14px; min-height:0; display:flex; align-items:stretch}
+.viz svg{width:100%; height:100%}
+.side{
+  border-left:1px solid var(--line); background:var(--panel); padding:18px;
+  display:flex; flex-direction:column; gap:12px; overflow-y:auto;
+}
+.card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--r); padding:13px 16px}
+.card .k{font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:var(--mut2); margin-bottom:4px}
+.card .v{font-family:var(--mono); font-size:26px; font-weight:700; font-variant-numeric:tabular-nums}
+.card .v small{font-size:14px; color:var(--mut); font-weight:500}
+.card.hero{border-color:var(--bid)}
+.card.hero .v{color:var(--bid); font-size:31px}
+.card.bad{border-color:var(--ask)}
+.card.bad .v{color:var(--ask)}
+.card.gold .v{color:var(--relief)}
+.callout{
+  background:var(--panel2); border-left:3px solid var(--relief); border-radius:0 var(--r) var(--r) 0;
+  padding:12px 15px; font-size:14.5px; line-height:1.5;
+}
+.callout b{color:var(--relief)}
+.callout.warn{border-left-color:var(--ask)}
+.callout.warn b{color:var(--ask)}
+.callout.good{border-left-color:var(--bid)}
+.callout.good b{color:var(--bid)}
+
+/* ---------- controls strip ---------- */
+.controls{
+  display:flex; align-items:center; gap:22px; flex-wrap:wrap;
+  padding:12px 26px; border-top:1px solid var(--line); background:var(--panel);
+}
+.ctl{display:flex; align-items:center; gap:12px}
+.ctl.hidden{display:none}
+.ctl .lbl{font-size:11px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2); white-space:nowrap}
+.ctl .val{font-family:var(--mono); font-size:16px; font-weight:700; min-width:96px}
+.ctl .val.green{color:var(--bid)}
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:220px; height:6px; border-radius:3px;
+  background:linear-gradient(to right, var(--accent) var(--fill,0%), var(--line2) var(--fill,0%));
+  outline:none; cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+  background:var(--txt); border:3px solid var(--accent); cursor:grab;
+}
+input[type=range]:focus-visible{outline:2px solid var(--txt); outline-offset:3px}
+#netRange{background:linear-gradient(to right, var(--relief) var(--fill,0%), var(--line2) var(--fill,0%))}
+#netRange::-webkit-slider-thumb{border-color:var(--relief)}
+
+/* the hook control — one toggle, one state change */
+.toggle{
+  font-family:var(--mono); font-size:13px; padding:9px 16px; border-radius:6px;
+  border:1px solid var(--line2); background:var(--panel2); color:var(--mut);
+  cursor:pointer; transition:.15s; letter-spacing:.5px;
+}
+.toggle:hover{border-color:var(--accent); color:var(--accent)}
+.toggle.on{background:var(--bid); border-color:var(--bid); color:#0B0E13; font-weight:700}
+.toggle.off{background:var(--ask); border-color:var(--ask); color:#0B0E13; font-weight:700}
+.presets{display:flex; gap:6px}
+.presets button{
+  font-family:var(--mono); font-size:12.5px; padding:7px 11px; border-radius:6px;
+  border:1px solid var(--line2); background:var(--panel2); color:var(--mut); cursor:pointer; transition:.15s;
+}
+.presets button:hover{border-color:var(--accent); color:var(--accent)}
+.presets button.active{background:var(--accent); border-color:var(--accent); color:#0B0E13; font-weight:700}
+
+/* ---------- stepper ---------- */
+.stepper{
+  display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:18px;
+  padding:11px 20px; border-top:1px solid var(--line); background:var(--panel);
+}
+.scn-count{font-family:var(--mono); font-size:14px; color:var(--mut); letter-spacing:.5px; white-space:nowrap}
+.scn-caption{font-size:15px}
+.scn-caption b{color:var(--accent)}
+.scn-nav{display:flex; gap:8px}
+.scn-nav button{
+  padding:9px 18px; border-radius:6px; border:1px solid var(--line2); background:var(--panel2);
+  color:var(--mut); font-size:14px; font-weight:500; cursor:pointer; transition:.15s;
+}
+.scn-nav button:hover:not(:disabled){border-color:var(--accent); color:var(--accent)}
+.scn-nav button:disabled{opacity:.35; cursor:not-allowed}
+.scn-nav .next{background:var(--accent); color:#0B0E13; border-color:var(--accent)}
+.scn-nav .next:hover:not(:disabled){filter:brightness(1.07); color:#0B0E13}
+
+/* ---------- footer disclaimer ---------- */
+.disclaimer{
+  padding:9px 20px; border-top:1px solid var(--line); background:var(--bg);
+  font-family:var(--mono); font-size:11.5px; color:var(--mut2); letter-spacing:.3px;
+  display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap;
+}
+
+/* ---------- short-viewport guard ----------
+   The controls strip and stepper must never be pushed off the bottom.
+   At reduced heights the padding compresses and the viz absorbs it. */
+@media (max-height:820px){
+  .main{padding:14px 22px 8px}
+  .main h1{font-size:22px}
+  .main .sub{font-size:14px}
+  .controls{padding:9px 22px; gap:16px}
+  .stepper{padding:8px 20px}
+  .side{padding:14px; gap:9px}
+  .card{padding:10px 13px}
+  .card .v{font-size:22px}
+  .card.hero .v{font-size:26px}
+}
+
+/* ---------- animation ---------- */
+.rise{animation:rise .5s both}
+@keyframes rise{from{opacity:0; transform:translateY(12px)}to{opacity:1; transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none !important; transition:none !important}}
+text{font-family:var(--mono)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <svg viewBox="18 12 44 56" width="22" height="28" aria-hidden="true">
+      <rect x="22" y="16" width="36" height="5" rx="1.5" fill="#F6465D"/>
+      <rect x="26" y="24" width="28" height="5" rx="1.5" fill="#F6465D"/>
+      <rect x="30" y="32" width="20" height="5" rx="1.5" fill="#F6465D"/>
+      <rect x="30" y="44" width="20" height="5" rx="1.5" fill="#2EBD85"/>
+      <rect x="26" y="52" width="28" height="5" rx="1.5" fill="#2EBD85"/>
+      <rect x="22" y="60" width="36" height="5" rx="1.5" fill="#2EBD85"/>
+    </svg>
+    <span class="name">Money<b>Internals</b></span>
+  </div>
+  <span class="ticker">TAX / RELIEF AT SOURCE</span>
+  <span class="ticker" id="st-year" style="color:var(--relief)">TAX YEAR —</span>
+  <div class="stats">
+    <div class="stat-h"><span class="k">Salary</span><span class="v tnum" id="st-salary">—</span></div>
+    <div class="stat-h"><span class="k">Out of your bank</span><span class="v tnum" id="st-net">—</span></div>
+    <div class="stat-h"><span class="k">Into the pot</span><span class="v tnum" id="st-pot" style="color:var(--relief)">—</span></div>
+    <div class="stat-h"><span class="k">Back to you</span><span class="v tnum" id="st-relief">—</span></div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="main">
+    <h1 id="title">—</h1>
+    <div class="sub" id="sub">—</div>
+    <div class="viz" id="viz"></div>
+  </div>
+  <div class="side" id="side"></div>
+</div>
+
+<div class="controls">
+  <div class="ctl" id="ctl-net">
+    <span class="lbl">You pay from take-home</span>
+    <input type="range" id="netRange" min="0" max="8000" step="50" value="4000" aria-label="Contribution paid from take-home">
+    <span class="val tnum" id="netVal">—</span>
+  </div>
+  <div class="ctl" id="ctl-salary">
+    <span class="lbl">Salary</span>
+    <input type="range" id="salary" min="50000" max="140000" step="250" value="100000" aria-label="Salary">
+    <span class="val tnum" id="salaryVal">—</span>
+  </div>
+  <div class="ctl" id="ctl-claim">
+    <span class="lbl">Higher-rate relief</span>
+    <button class="toggle" id="claimBtn" aria-pressed="false">—</button>
+  </div>
+  <div class="ctl presets" id="ctl-presets">
+    <button data-salary="60000">£60,000</button>
+    <button data-salary="100000" class="active">£100,000</button>
+    <button data-salary="110000">£110,000</button>
+  </div>
+</div>
+
+<div class="stepper">
+  <span class="scn-count" id="scnCount">—</span>
+  <span class="scn-caption" id="scnCaption">—</span>
+  <span class="scn-nav">
+    <button id="prev">← Back</button>
+    <button id="next" class="next">Next →</button>
+  </span>
+</div>
+
+<div class="disclaimer">
+  <span>EDUCATION, NOT FINANCIAL ADVICE · MECHANICS ONLY</span>
+  <span id="disc-year">ENGLAND, WALES &amp; NI · —</span>
+  <span id="disc-build">MONEYINTERNALS.COM</span>
+</div>
+
+<script>
+/* ============================================================
+   REGISTERED ASSUMPTIONS — verify against HMRC before recording
+   ============================================================ */
+const TAX_YEAR   = '2026/27';
+const JURIS      = 'England, Wales & NI';
+const BUILD      = 'ep03-b15';   // bump on every edit — visible bottom-right
+const PA         = 12570;   // personal allowance
+const BASIC_LIMIT= 37700;   // taxable income taxed at 20%
+const ADDL_LIMIT = 125140;  // taxable income where 45% starts
+const TAPER_START= 100000;  // ANI above this erodes the allowance
+const BASIC_RATE = 0.20, HIGHER_RATE = 0.40, ADDL_RATE = 0.45;
+const BACKDATE_YEARS = 4;   // "up to the last 4 tax years"
+/* NI is illustrative only — used solely to make the payslip panel look real.
+   Nothing in the relief calculation depends on it. VERIFY before recording. */
+const NI_LOWER = 12570, NI_UPPER = 50270, NI_MAIN = 0.08, NI_UPPER_RATE = 0.02;
+function niDue(salary){
+  return Math.max(0, Math.min(salary, NI_UPPER) - NI_LOWER) * NI_MAIN
+       + Math.max(0, salary - NI_UPPER) * NI_UPPER_RATE;
+}
+
+/* ============================================================
+   ENGINE — two calls to one function, differenced
+   ============================================================ */
+function allowanceFor(ani){
+  if(ani <= TAPER_START) return PA;
+  return Math.max(0, PA - Math.floor((ani - TAPER_START) / 2));
+}
+
+function taxDue(salary, ani, extension){
+  const taxable = Math.max(0, salary - allowanceFor(ani));
+  const basicLimit  = BASIC_LIMIT + extension;
+  const higherLimit = ADDL_LIMIT  + extension;
+
+  const basic  = Math.min(taxable, basicLimit);
+  const higher = Math.min(Math.max(taxable - basicLimit, 0), higherLimit - basicLimit);
+  const addl   = Math.max(taxable - higherLimit, 0);
+
+  return basic*BASIC_RATE + higher*HIGHER_RATE + addl*ADDL_RATE;
+}
+
+function model(salary, net){
+  const gross  = net / 0.8;            // provider grosses up at basic rate
+  const topUp  = gross - net;          // straight into the pot
+  const before = taxDue(salary, salary, 0);
+  const after  = taxDue(salary, salary - gross, gross);
+  const relief = before - after;       // what comes back to YOU
+  return {
+    gross, topUp, before, after, relief,
+    net,
+    outOfPocket: net - relief,
+    aniBefore: salary,
+    aniAfter: salary - gross,
+    paBefore: allowanceFor(salary),
+    paAfter: allowanceFor(salary - gross),
+    paGain: allowanceFor(salary - gross) - allowanceFor(salary)
+  };
+}
+
+/* ============================================================
+   STATE
+   ============================================================ */
+let salary = 100000, net = 4000, claimed = false, scene = 0, payslip = false, reach = false, taxcode = false, reveal = 0;
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const gbp = n => '£' + Math.round(n).toLocaleString('en-GB');
+const C = {
+  bid:'#2EBD85', ask:'#F6465D', relief:'#E8B33C', employer:'#4A9EDA',
+  txt:'#E6EAF0', mut:'#8B94A3', mut2:'#5C6675', line:'#232A33', panel:'#171F2A'
+};
+
+function svgEl(tag, attrs){
+  const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for(const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+function makeSVG(){
+  return svgEl('svg', {viewBox:'0 0 1000 520', preserveAspectRatio:'xMidYMid meet'});
+}
+function txt(svg, x, y, s, size, fill, anchor, weight){
+  const t = svgEl('text', {x, y, 'font-size':size||14, fill:fill||C.txt,
+    'text-anchor':anchor||'start', 'font-weight':weight||500});
+  t.textContent = s;
+  svg.appendChild(t);
+  return t;
+}
+function card(k, v, cls, small){
+  return `<div class="card ${cls||''} rise"><div class="k">${k}</div>`
+       + `<div class="v tnum">${v}${small ? ' <small>'+small+'</small>' : ''}</div></div>`;
+}
+
+
+/* ============================================================
+   PAYSLIP COMPARISON — scene 1, toggled with P
+   Monthly figures. The gap between the two take-home lines IS
+   the unclaimed higher-rate relief. Derived, never hand-typed.
+   ============================================================ */
+function drawPayslips(svg){
+  const m = model(salary, net);
+  const mo = x => x / 12;
+
+  const taxOffGross = taxDue(salary - m.gross, salary - m.gross, 0);
+  const taxOffNet   = taxDue(salary, salary, 0);
+  const ni          = niDue(salary);
+
+  const homeA = mo(salary) - mo(m.gross) - mo(taxOffGross) - mo(ni);
+  const payB  = mo(salary) - mo(taxOffNet) - mo(ni);
+  const homeB = payB - mo(net);
+
+  const money = v => '£' + v.toLocaleString('en-GB',{minimumFractionDigits:2, maximumFractionDigits:2});
+
+  const panels = [
+    { x:56, hot:C.bid, title:'COMES OFF YOUR GROSS PAY',
+      note:'salary sacrifice / net pay', verdict:'NOTHING TO CLAIM',
+      rows:[
+        ['Gross pay',            money(mo(salary)),   false],
+        ['Pension',              '−'+money(mo(m.gross)), false],
+        ['Taxable pay',          money(mo(salary)-mo(m.gross)), 'hot'],
+        ['Income tax',           '−'+money(mo(taxOffGross)), false],
+        ['National Insurance',   '−'+money(mo(ni)),   false],
+        ['TAKE-HOME',            money(homeA),        'total']
+      ],
+      flag:'lower than gross pay' },
+    { x:512, hot:C.ask, title:'COMES OUT OF YOUR TAKE-HOME',
+      note:'relief at source', verdict:'SOMETHING LEFT TO CLAIM',
+      rows:[
+        ['Gross pay',            money(mo(salary)),   false],
+        ['Taxable pay',          money(mo(salary)),   'hot'],
+        ['Income tax',           '−'+money(mo(taxOffNet)), false],
+        ['National Insurance',   '−'+money(mo(ni)),   false],
+        ['Paid to you',          money(payB),         false],
+        ['Pension leaves bank',  '−'+money(mo(net)),  false],
+        ['LEFT',                 money(homeB),        'total']
+      ],
+      flag:'identical to gross pay' }
+  ];
+
+  txt(svg, 500, 30, 'THE PAYSLIP TEST — ONE MONTH, SAME £' +
+      Math.round(m.gross).toLocaleString('en-GB') + ' INTO THE POT', 14, C.mut2, 'middle', 700);
+
+  panels.forEach(p => {
+    svg.appendChild(svgEl('rect',{x:p.x, y:48, width:432, height:352, rx:12,
+      fill:C.panel, stroke:p.hot, 'stroke-width':2}));
+    txt(svg, p.x+20, 78, p.title, 13, p.hot, 'start', 700);
+    txt(svg, p.x+20, 98, p.note, 12, C.mut2, 'start');
+
+    p.rows.forEach((r,i) => {
+      const y = 130 + i*36;
+      if(r[2] === 'hot'){
+        svg.appendChild(svgEl('rect',{x:p.x+12, y:y-20, width:408, height:30, rx:5,
+          fill: p.hot === C.bid ? 'rgba(46,189,133,.16)' : 'rgba(246,70,93,.14)'}));
+      }
+      if(r[2] === 'total'){
+        svg.appendChild(svgEl('line',{x1:p.x+20, y1:y-24, x2:p.x+412, y2:y-24,
+          stroke:C.line2, 'stroke-width':1}));
+      }
+      const bold = r[2] === 'total' ? 700 : 500;
+      const col  = r[2] === 'hot' ? p.hot : (r[2] === 'total' ? C.txt : C.mut);
+      txt(svg, p.x+20,  y, r[0], r[2]==='total'?14:13, col, 'start', bold);
+      txt(svg, p.x+412, y, r[1], r[2]==='total'?16:14, col, 'end', bold);
+      if(r[2] === 'hot') txt(svg, p.x+20, y+16, p.flag, 10, p.hot, 'start', 700);
+    });
+
+    txt(svg, p.x+216, 384, p.verdict, 12, p.hot, 'middle', 700);
+  });
+
+  txt(svg, 500, 434, 'Look for taxable pay. Lower than gross pay — the pension already came off before tax.',
+      14, C.mut, 'middle');
+  txt(svg, 500, 460, 'Same as gross pay — it came out afterwards, and the higher-rate slice is still sitting there.',
+      14, C.mut, 'middle');
+  txt(svg, 500, 496, 'Difference in take-home: ' + money(homeA - homeB) + ' a month · ' +
+      '£' + Math.round((homeA-homeB)*12).toLocaleString('en-GB') + ' a year',
+      17, C.relief, 'middle', 700);
+}
+
+
+/* ============================================================
+   WHO THIS APPLIES TO — scene 1, toggled with W
+   ============================================================ */
+function drawReach(svg){
+  const x0 = 70, W = 860, MAX = 150000;
+  const px = v => x0 + (Math.min(v, MAX) / MAX) * W;
+
+  const bands = [
+    [0,      PA,          '#1A222E', 'ALLOWANCE',  '0%'],
+    [PA,     50270,       '#233040', 'BASIC',      '20%'],
+    [50270,  ADDL_LIMIT,  'rgba(46,189,133,.20)', 'HIGHER', '40%'],
+    [ADDL_LIMIT, MAX,     'rgba(46,189,133,.30)', 'ADDITIONAL', '45%']
+  ];
+
+  txt(svg, 500, 40, 'WHO THIS VIDEO IS ABOUT', 14, C.mut2, 'middle', 700);
+
+  bands.forEach(b => {
+    const w = px(b[1]) - px(b[0]);
+    const on = b[0] >= 50270;
+    svg.appendChild(svgEl('rect',{x:px(b[0]), y:110, width:w, height:78, rx:4,
+      fill:b[2], stroke: on ? C.bid : C.line, 'stroke-width': on ? 2 : 1}));
+    if(w > 70){
+      txt(svg, px(b[0])+w/2, 143, b[3], 11, on ? C.bid : C.mut2, 'middle', 700);
+      txt(svg, px(b[0])+w/2, 168, b[4], 17, on ? C.bid : C.mut, 'middle', 700);
+    }
+  });
+
+  // the threshold
+  svg.appendChild(svgEl('line',{x1:px(50270), y1:92, x2:px(50270), y2:212,
+    stroke:C.relief, 'stroke-width':3}));
+  txt(svg, px(50270), 82, '£50,270', 20, C.relief, 'middle', 700);
+  txt(svg, px(50270), 232, 'higher rate starts here', 12, C.relief, 'middle', 700);
+
+  // where this video sits
+  svg.appendChild(svgEl('path',{d:'M '+px(salary)+' 292 l -9 -16 l 18 0 z', fill:C.txt}));
+  txt(svg, px(salary), 314, gbp(salary), 15, C.txt, 'middle', 700);
+  txt(svg, px(salary), 334, 'used in this video', 11, C.mut2, 'middle');
+
+  svg.appendChild(svgEl('rect',{x:70, y:366, width:415, height:104, rx:10,
+    fill:C.panel, stroke:C.line}));
+  txt(svg, 90, 396, 'BELOW £50,270', 12, C.mut2, 'start', 700);
+  txt(svg, 90, 424, 'Your provider claims the basic rate.', 14, C.mut, 'start');
+  txt(svg, 90, 448, 'That is all the relief there is.', 14, C.mut, 'start');
+
+  svg.appendChild(svgEl('rect',{x:515, y:366, width:415, height:104, rx:10,
+    fill:C.panel, stroke:C.bid, 'stroke-width':2}));
+  txt(svg, 535, 396, 'FROM £50,271 UPWARD', 12, C.bid, 'start', 700);
+  txt(svg, 535, 424, 'There is a higher-rate slice —', 14, C.txt, 'start');
+  txt(svg, 535, 448, 'and it is never automatic.', 14, C.bid, 'start', 700);
+
+  txt(svg, 500, 500, 'The mechanism is identical anywhere in the green. Only the size of the slice changes.',
+      13, C.mut2, 'middle');
+}
+
+/* ============================================================
+   TAX CODE GOES STALE — scene 4, toggled with T
+   ============================================================ */
+function drawTaxCode(svg){
+  txt(svg, 500, 36, 'IF YOU TAKE THE TAX CODE ROUTE', 14, C.mut2, 'middle', 700);
+
+  const steps = [
+    ['1','YOU CLAIM','HMRC works out this year\u2019s relief', C.bid],
+    ['2','CODE ADJUSTED','It assumes next year looks the same', C.relief],
+    ['3','SOMETHING CHANGES','Pay rise · contribution change · sacrifice', C.ask],
+    ['4','CODE NOW WRONG','Too much, or too little, collected', C.ask],
+    ['5','RECONCILED LATER','An unexpected bill — or a refund', C.mut]
+  ];
+
+  steps.forEach((st,i) => {
+    const y = 78 + i*80;
+    const hot = st[3] === C.ask;
+    svg.appendChild(svgEl('rect',{x:150, y, width:700, height:62, rx:10,
+      fill:C.panel, stroke:st[3], 'stroke-width': hot ? 2 : 1}));
+    svg.appendChild(svgEl('circle',{cx:186, cy:y+31, r:17, fill:'none', stroke:st[3], 'stroke-width':2}));
+    txt(svg, 186, y+37, st[0], 16, st[3], 'middle', 700);
+    txt(svg, 222, y+27, st[1], 14, st[3], 'start', 700);
+    txt(svg, 222, y+48, st[2], 13, C.mut, 'start');
+    if(i < steps.length-1){
+      svg.appendChild(svgEl('path',{d:'M 500 '+(y+62)+' L 500 '+(y+80),
+        stroke:C.line2, 'stroke-width':2}));
+    }
+  });
+
+  txt(svg, 500, 500, 'The code carries an estimate forward. It does not break — it quietly drifts.',
+      14, C.relief, 'middle', 700);
+}
+
+/* ============================================================
+   SCENES
+   ============================================================ */
+const scenes = [
+  {
+    id:'routes',
+    caption:'Three ways money reaches a pension — <b>only one leaves something to claim</b>',
+    title:'Which pension are you actually in?',
+    sub:'The route decides whether anything is left over. Check a payslip: if the contribution comes off before tax, it is already finished. If it comes out of your take-home, it is not.',
+    controls:{net:true, salary:true, claim:false, presets:false},
+    draw(svg){
+      if(payslip){ drawPayslips(svg); return; }
+      if(reach){ drawReach(svg); return; }
+      const rows = [
+        ['SALARY SACRIFICE','Gross pay given up — employer pays the pension','No income tax, no NI','Nothing to claim',false],
+        ['NET PAY ARRANGEMENT','Deducted from gross before income tax','Full relief automatic','Nothing to claim',false],
+        ['RELIEF AT SOURCE','Paid from take-home — provider reclaims basic 20%','Higher-rate slice NOT automatic','You must claim it',true]
+      ];
+      txt(svg, 120, 54, 'THREE WAYS MONEY REACHES A UK PENSION', 15, C.mut2, 'start', 700);
+      rows.forEach((r,i)=>{
+        const y = 84 + i*118, hot = r[4];
+        svg.appendChild(svgEl('rect',{x:120, y, width:760, height:100, rx:10,
+          fill:C.panel, stroke:hot?C.relief:C.line, 'stroke-width':hot?2:1}));
+        if(hot) svg.appendChild(svgEl('rect',{x:120, y, width:5, height:100, rx:2, fill:C.relief}));
+        txt(svg, 148, y+32, r[0], 17, hot?C.relief:C.txt, 'start', 700);
+        txt(svg, 148, y+58, r[1], 14, C.mut, 'start');
+        txt(svg, 148, y+82, r[2], 13, hot?C.relief:C.mut2, 'start', 700);
+        txt(svg, 860, y+56, r[3], 15, hot?C.relief:C.mut2, 'end', 700);
+      });
+      txt(svg, 500, 476, 'Relief at source is the default on every personal pension, and common in workplace schemes.',
+          14, C.mut2, 'middle');
+    },
+    side(){
+      if(reach){
+        return card('Higher rate starts', '£50,270', 'gold')
+          + card('Used in this video', gbp(salary), '')
+          + `<div class="callout good"><b>Same mechanism throughout.</b> From £50,271 upward the higher-rate slice exists and is never automatic. Only its size changes.</div>`
+          + `<div class="callout"><b>Why £100,000?</b> The arithmetic is cleaner, and a second mechanism appears there — which comes up later.</div>`;
+      }
+      if(payslip){
+        const m = model(salary, net);
+        const mo = x => x/12;
+        const gap = (taxDue(salary, salary, 0) - taxDue(salary, salary - m.gross, m.gross));
+        return card('Into the pot, either way', gbp(m.gross), 'gold')
+          + card('Take-home gap', gbp(mo(gap)), 'bad', 'a month')
+          + card('Over a year', gbp(gap), 'bad')
+          + `<div class="callout warn"><b>Same pot. Same salary.</b> The gap is the higher-rate slice that relief at source leaves unclaimed.</div>`
+          + `<div class="callout"><b>Illustrative payslip.</b> NI shown to make the layout realistic; the relief figures do not depend on it.</div>`;
+      }
+      return card('Routes that finish themselves','2','', 'of 3')
+        + card('Routes that do not','1','bad','of 3')
+        + `<div class="callout"><b>The payslip test.</b> Contribution deducted from gross pay? Sacrifice or net pay — done. Deducted from what already landed in your bank? Relief at source.</div>`;
+    }
+  },
+
+  {
+    id:'grossup',
+    caption:'You paid £4,000 — the statement says <b>£5,000</b>',
+    title:'Who added the other £1,000?',
+    sub:'Under relief at source you pay from money that has already been taxed. Your provider reclaims basic-rate relief from HMRC and adds it to the pot, usually a few weeks later. You do nothing.',
+    controls:{net:true, salary:true, claim:false, presets:false},
+    draw(svg){
+      const m = model(salary, net);
+      const boxes = [
+        ['OUT OF YOUR BANK', gbp(m.net), C.txt, 'you paid this'],
+        ['PROVIDER RECLAIMS', gbp(m.topUp), C.relief, 'basic rate, automatic'],
+        ['LANDS IN THE POT', gbp(m.gross), C.bid, 'the gross contribution']
+      ];
+      boxes.forEach((b,i)=>{
+        const x = 90 + i*300;
+        svg.appendChild(svgEl('rect',{x, y:150, width:250, height:190, rx:12,
+          fill:C.panel, stroke:b[2], 'stroke-width':i===2?2:1}));
+        txt(svg, x+125, 190, b[0], 12, C.mut2, 'middle', 700);
+        txt(svg, x+125, 250, b[1], 40, b[2], 'middle', 700);
+        txt(svg, x+125, 290, b[3], 13, C.mut, 'middle');
+        if(i<2) txt(svg, x+272, 252, i===0 ? '+' : '=', 30, C.mut2, 'middle', 700);
+      });
+      txt(svg, 500, 400, '20% of the GROSS contribution — which is 25% on top of what you paid', 16, C.relief, 'middle', 700);
+      txt(svg, 500, 432, 'Every £4 you pay becomes £5 in the pot. That part is automatic for everyone.', 14, C.mut, 'middle');
+    },
+    side(){
+      const m = model(salary, net);
+      return card('You paid', gbp(m.net))
+        + card('Provider added', gbp(m.topUp), 'gold')
+        + card('In the pot', gbp(m.gross), 'hero')
+        + `<div class="callout good"><b>Basic rate, done.</b> This happens whatever you earn. Nothing here needs claiming.</div>`;
+    }
+  },
+
+  {
+    id:'slice',
+    caption:'Taxed at 40%. Relieved at 20%. <b>Where is the rest?</b>',
+    title:'The slice that does not arrive',
+    sub:'Your provider can only ever reclaim at the basic rate. If you pay tax above that rate, you are entitled to relief above that rate too — and the mechanism leaves it sitting there unless it is requested.',
+    controls:{net:true, salary:true, claim:true, presets:false},
+    draw(svg){
+      const m = model(salary, net);
+      const full = m.topUp + m.relief;
+      const w = 700, x0 = 150;
+      const wDone = w * (m.topUp / (full || 1));
+      const wPend = w - wDone;
+
+      txt(svg, x0, 130, 'RELIEF YOU ARE ENTITLED TO ON ' + gbp(m.gross), 13, C.mut2, 'start', 700);
+      svg.appendChild(svgEl('rect',{x:x0, y:150, width:wDone, height:96, rx:8, fill:'rgba(232,179,60,.20)', stroke:C.relief, 'stroke-width':2}));
+      txt(svg, x0+wDone/2, 190, 'DELIVERED', 12, C.relief, 'middle', 700);
+      txt(svg, x0+wDone/2, 224, gbp(m.topUp), 26, C.relief, 'middle', 700);
+
+      const pendCol = claimed ? C.bid : C.ask;
+      svg.appendChild(svgEl('rect',{x:x0+wDone, y:150, width:wPend, height:96, rx:8,
+        fill: claimed ? 'rgba(46,189,133,.18)' : 'rgba(246,70,93,.14)',
+        stroke:pendCol, 'stroke-width':2, 'stroke-dasharray': claimed ? '0' : '7 5'}));
+      txt(svg, x0+wDone+wPend/2, 190, claimed ? 'CLAIMED' : 'NOT CLAIMED', 12, pendCol, 'middle', 700);
+      txt(svg, x0+wDone+wPend/2, 224, gbp(m.relief), 26, pendCol, 'middle', 700);
+
+      txt(svg, 500, 300, claimed
+        ? 'Requested. The higher-rate slice is now on its way to you.'
+        : 'Nobody sends this automatically. It stays where it is until it is asked for.',
+        16, claimed ? C.bid : C.ask, 'middle', 700);
+
+      txt(svg, 500, 366, 'Total tax relief on ' + gbp(m.gross) + ' at your rate: ' + gbp(full), 15, C.mut, 'middle');
+      txt(svg, 500, 396, 'Automatic portion: ' + gbp(m.topUp) + '  ·  Requires a claim: ' + gbp(m.relief), 14, C.mut2, 'middle');
+    },
+    side(){
+      const m = model(salary, net);
+      return card('Automatic', gbp(m.topUp), 'gold')
+        + card(claimed ? 'Claimed' : 'Unclaimed', gbp(m.relief), claimed ? 'hero' : 'bad')
+        + (claimed
+          ? `<div class="callout good"><b>Requested.</b> Nothing about the pot changed — this slice was never going there.</div>`
+          : `<div class="callout warn"><b>Still sitting there.</b> The pot is unaffected either way. This is about tax you already paid.</div>`);
+    }
+  },
+
+  {
+    id:'lands',
+    caption:'It does <b>not</b> go into your pension',
+    title:'So where does it actually land?',
+    sub:'This is the part almost everyone gets wrong. The basic-rate top-up goes to the pot. The higher-rate slice goes to you — as cash, a smaller bill, or a tax code change.',
+    controls:{net:true, salary:true, claim:false, presets:false},
+    draw(svg){
+      if(taxcode){ drawTaxCode(svg); return; }
+      const m = model(salary, net);
+      txt(svg, 500, 60, 'TWO AMOUNTS. TWO DESTINATIONS.', 15, C.mut2, 'middle', 700);
+
+      svg.appendChild(svgEl('rect',{x:330, y:96, width:340, height:74, rx:10, fill:C.panel, stroke:C.line}));
+      txt(svg, 500, 128, 'RELIEF AT ' + (salary > 125140 ? '45%' : '40%') + ' ON ' + gbp(m.gross), 13, C.mut2, 'middle', 700);
+      txt(svg, 500, 156, gbp(m.topUp + m.relief), 22, C.txt, 'middle', 700);
+
+      // left branch — the pot
+      svg.appendChild(svgEl('path',{d:'M 420 170 L 260 236', stroke:C.relief, 'stroke-width':2, fill:'none'}));
+      svg.appendChild(svgEl('rect',{x:90, y:240, width:340, height:150, rx:12, fill:C.panel, stroke:C.relief, 'stroke-width':2}));
+      txt(svg, 260, 276, 'INTO THE POT', 12, C.relief, 'middle', 700);
+      txt(svg, 260, 322, gbp(m.topUp), 34, C.relief, 'middle', 700);
+      txt(svg, 260, 356, 'added by your provider', 13, C.mut, 'middle');
+
+      // right branch — you
+      svg.appendChild(svgEl('path',{d:'M 580 170 L 740 236', stroke:C.bid, 'stroke-width':2, fill:'none'}));
+      svg.appendChild(svgEl('rect',{x:570, y:240, width:340, height:150, rx:12, fill:C.panel, stroke:C.bid, 'stroke-width':2}));
+      txt(svg, 740, 276, 'TO YOU', 12, C.bid, 'middle', 700);
+      txt(svg, 740, 322, gbp(m.relief), 34, C.bid, 'middle', 700);
+      txt(svg, 740, 356, 'not to the pension', 13, C.mut, 'middle');
+
+      txt(svg, 740, 424, 'a rebate  ·  a smaller bill  ·  a tax code change', 14, C.mut2, 'middle');
+      txt(svg, 500, 480, 'You can choose to pay it into a pension. The mechanism does not do that for you.', 14, C.mut, 'middle');
+    },
+    side(){
+      if(taxcode){
+        return card('What the code carries', 'AN ESTIMATE', 'bad')
+          + `<div class="callout warn"><b>It assumes next year matches this year.</b> Change your contribution, your salary, or move to salary sacrifice, and the code stops matching reality.</div>`
+          + `<div class="callout"><b>It reconciles later.</b> Which is why relief that felt like free money can arrive as an unexpected bill.</div>`
+          + `<div class="callout good"><b>Self Assessment doesn't drift.</b> It settles the year that actually happened, after it happened.</div>`;
+      }
+      const m = model(salary, net);
+      return card('To the pot', gbp(m.topUp), 'gold')
+        + card('To you', gbp(m.relief), 'hero')
+        + `<div class="callout"><b>Three routes back.</b> A rebate from HMRC, a reduction in what you owe, or an adjusted tax code so less is taken in future months.</div>`
+        + `<div class="callout warn"><b>Tax codes go stale.</b> A code carries an estimate forward. Change your contribution, change salary, or move to salary sacrifice, and it stops matching reality — which unwinds later as an over- or underpayment.</div>`;
+    }
+  },
+
+  {
+    id:'band',
+    caption:'HMRC does not write a cheque — it <b>moves a boundary</b>',
+    title:'How the money actually reaches you',
+    sub:'Your basic-rate band is widened by the gross contribution. Income that was being taxed at the higher rate falls into the basic rate instead, and the difference is the relief.',
+    controls:{net:true, salary:true, claim:true, presets:false},
+    draw(svg){
+      const m = model(salary, net);
+      const ext = claimed ? m.gross : 0;
+      const limit = BASIC_LIMIT + ext;
+      const taxable = Math.max(0, salary - (claimed ? m.paAfter : m.paBefore));
+      const scale = 780 / Math.max(taxable, 1);
+
+      txt(svg, 110, 92, 'TAXABLE INCOME — ' + gbp(taxable), 13, C.mut2, 'start', 700);
+
+      const basicW  = Math.min(taxable, limit) * scale;
+      const higherW = Math.max(taxable - limit, 0) * scale;
+
+      svg.appendChild(svgEl('rect',{x:110, y:110, width:basicW, height:88, rx:6,
+        fill:'rgba(46,189,133,.18)', stroke:C.bid, 'stroke-width':2}));
+      txt(svg, 110 + basicW/2, 148, '20%', 24, C.bid, 'middle', 700);
+      txt(svg, 110 + basicW/2, 176, gbp(Math.min(taxable, limit)), 13, C.bid, 'middle');
+
+      if(higherW > 4){
+        svg.appendChild(svgEl('rect',{x:110+basicW, y:110, width:higherW, height:88, rx:6,
+          fill:'rgba(246,70,93,.14)', stroke:C.ask, 'stroke-width':2}));
+        txt(svg, 110+basicW+higherW/2, 148, '40%', 24, C.ask, 'middle', 700);
+        txt(svg, 110+basicW+higherW/2, 176, gbp(Math.max(taxable-limit,0)), 13, C.ask, 'middle');
+      }
+
+      // the moving boundary
+      svg.appendChild(svgEl('line',{x1:110+basicW, y1:96, x2:110+basicW, y2:236,
+        stroke:claimed?C.relief:C.mut2, 'stroke-width':2, 'stroke-dasharray':'5 4'}));
+      txt(svg, 110+basicW, 258, 'BASIC BAND ENDS', 11, claimed?C.relief:C.mut2, 'middle', 700);
+      txt(svg, 110+basicW, 280, gbp(limit), 15, claimed?C.relief:C.mut2, 'middle', 700);
+
+      if(claimed){
+        txt(svg, 110+basicW, 306, '↔ widened by ' + gbp(m.gross), 12, C.relief, 'middle', 700);
+      }
+
+      txt(svg, 110, 330, 'You may know this as £50,270 — that is £12,570 of allowance plus £37,700 of band.', 12, C.mut2, 'start');
+      txt(svg, 110, 348, 'This chart strips the allowance out first, so you are seeing the band on its own.', 12, C.mut2, 'start');
+
+      txt(svg, 110, 386, claimed ? 'CLAIMED' : 'NOT CLAIMED', 13, claimed?C.bid:C.ask, 'start', 700);
+      txt(svg, 110, 416, 'Income tax due: ' + gbp(claimed ? m.after : m.before), 22, C.txt, 'start', 700);
+      txt(svg, 110, 450, claimed
+        ? gbp(m.gross) + ' moved from 40% to 20% — a 20-point difference, which is ' + gbp(m.relief)
+        : 'The band sits where it always sits. Nothing has moved.',
+        14, claimed ? C.bid : C.mut, 'start');
+    },
+    side(){
+      const m = model(salary, net);
+      return card('Tax without claiming', gbp(m.before), 'bad')
+        + card('Tax after claiming', gbp(m.after), claimed ? 'hero' : '')
+        + card('The difference', gbp(m.relief), 'gold')
+        + `<div class="callout"><b>Band extension.</b> Not a refund calculation — the same tax computation, run against a wider basic-rate band.</div>`;
+    }
+  },
+
+  {
+    id:'salary',
+    caption:'Same £4,000. <b>Different salary. Different answer.</b>',
+    title:'What else does that number touch?',
+    sub:'The gross contribution also reduces adjusted net income. Below £100,000 that changes nothing. Inside the taper from the last episode, it restores personal allowance as well — and the relief roughly doubles.',
+    controls:{net:true, salary:true, claim:false, presets:true},
+    draw(svg){
+      const m = model(salary, net);
+      const inTaper = salary > TAPER_START;
+
+      txt(svg, 500, 56, 'ADJUSTED NET INCOME', 13, C.mut2, 'middle', 700);
+      txt(svg, 340, 96, gbp(m.aniBefore), 30, C.ask, 'middle', 700);
+      txt(svg, 500, 96, '→', 24, C.mut2, 'middle');
+      txt(svg, 660, 96, gbp(m.aniAfter), 30, C.bid, 'middle', 700);
+
+      // allowance bars
+      const barW = 620, x0 = 190;
+      [['WITHOUT CLAIMING', m.paBefore, C.ask, 170],
+       ['AFTER CLAIMING',   m.paAfter,  C.bid, 268]].forEach(r=>{
+        txt(svg, x0, r[3]-10, r[0], 12, C.mut2, 'start', 700);
+        svg.appendChild(svgEl('rect',{x:x0, y:r[3], width:barW, height:56, rx:6, fill:'#10161F', stroke:C.line}));
+        const w = barW * (r[1]/PA);
+        if(w > 2) svg.appendChild(svgEl('rect',{x:x0, y:r[3], width:w, height:56, rx:6,
+          fill:'rgba(232,179,60,.22)', stroke:C.relief, 'stroke-width':2}));
+        txt(svg, 968, r[3]+36, gbp(r[1]), 20, r[2], 'end', 700);
+      });
+      txt(svg, x0, 350, 'PERSONAL ALLOWANCE  ·  full amount ' + gbp(PA), 12, C.mut2, 'start', 700);
+
+      txt(svg, 500, 412, inTaper
+        ? 'Allowance restored: ' + gbp(m.paGain) + ' — half the gross contribution'
+        : 'Below £100,000 the allowance is already full. Nothing to restore.',
+        16, inTaper ? C.relief : C.mut, 'middle', 700);
+
+      txt(svg, 500, 452, 'Relief on the same ' + gbp(net) + ': ' + gbp(m.relief), 20, C.bid, 'middle', 700);
+      txt(svg, 500, 486, inTaper
+        ? 'Band extension and allowance restoration — firing together.'
+        : 'One mechanism only — band extension.',
+        13, C.mut2, 'middle');
+    },
+    side(){
+      const m = model(salary, net);
+      return card('Adjusted net income', gbp(m.aniAfter), '', 'after')
+        + card('Personal allowance', gbp(m.paAfter), 'gold')
+        + card('Back to you', gbp(m.relief), 'hero')
+        + `<div class="callout"><b>Two mechanisms, one number.</b> The gross contribution drives both the band extension and the allowance test. They are independent — and above £100,000 they stack.</div>`;
+    }
+  },
+
+  {
+    id:'years',
+    caption:'The relief does not expire immediately — but it <b>does expire</b>',
+    title:'What if you never claimed?',
+    sub:'Missed years can generally be claimed for up to the last four tax years, through Self Assessment or directly with HMRC. Beyond that window the mechanism closes.',
+    controls:{net:true, salary:true, claim:false, presets:false},
+    draw(svg){
+      const m = model(salary, net);
+      txt(svg, 500, 64, 'UP TO ' + BACKDATE_YEARS + ' TAX YEARS', 15, C.mut2, 'middle', 700);
+      for(let i=0;i<BACKDATE_YEARS;i++){
+        const x = 90 + i*215;
+        svg.appendChild(svgEl('rect',{x, y:110, width:190, height:150, rx:12,
+          fill:C.panel, stroke:C.bid, 'stroke-width':2}));
+        txt(svg, x+95, 148, i===0 ? 'THIS YEAR' : i+' YEAR'+(i>1?'S':'')+' BACK', 11, C.mut2, 'middle', 700);
+        txt(svg, x+95, 200, gbp(m.relief), 26, C.bid, 'middle', 700);
+        txt(svg, x+95, 232, 'claimable', 12, C.mut, 'middle');
+      }
+      // the closed year
+      svg.appendChild(svgEl('rect',{x:90, y:300, width:190, height:96, rx:12,
+        fill:'#10161F', stroke:C.line, 'stroke-dasharray':'6 5'}));
+      txt(svg, 185, 338, 'OLDER THAN THAT', 11, C.mut2, 'middle', 700);
+      txt(svg, 185, 370, 'CLOSED', 20, C.mut2, 'middle', 700);
+
+      txt(svg, 330, 344, 'Each year needs its own claim, and only counts if you paid tax', 15, C.mut, 'start');
+      txt(svg, 330, 372, 'above the basic rate in that year.', 15, C.mut, 'start');
+      txt(svg, 500, 466, 'Claim through Self Assessment, or directly with HMRC at gov.uk.', 14, C.mut2, 'middle');
+    },
+    side(){
+      const m = model(salary, net);
+      return card('Per year', gbp(m.relief), 'gold')
+        + card('Window', BACKDATE_YEARS, '', 'tax years')
+        + `<div class="callout"><b>Thresholds have been frozen.</b> The bands have not moved across the window, so the arithmetic in each year is the same.</div>`
+        + `<div class="callout warn"><b>Not a calculator for your return.</b> Figures here are illustrative. gov.uk has the rules; an accountant has your circumstances.</div>`;
+    }
+  },
+
+  {
+    id:'payoff',
+    caption:'<b>The whole video</b>, in four numbers',
+    title:'Where the £4,000 ended up',
+    sub:'Same contribution, followed all the way through. The provider does part of the job automatically. The rest waits to be asked for.',
+    controls:{net:true, salary:true, claim:false, presets:false},
+    draw(svg){
+      const m = model(salary, net);
+      const items = [
+        [gbp(m.net),         'LEFT YOUR BANK',   'you paid this',                C.txt],
+        [gbp(m.gross),       'INTO THE POT',     'provider claimed, unasked',    C.relief],
+        [gbp(m.relief),      'BACK TO YOU',      'only because somebody asked',  C.bid],
+        [gbp(m.outOfPocket), 'NET COST',         'for ' + gbp(m.gross) + ' in a pension', C.bid]
+      ];
+
+      txt(svg, 500, 34, 'FOLLOW THE MONEY', 14, C.mut2, 'middle', 700);
+
+      items.forEach((it,i) => {
+        if(reveal < i+1) return;
+        const x = 62 + i*228;
+        const hero = i === 3;
+        svg.appendChild(svgEl('rect',{x, y:62, width:210, height:172, rx:12,
+          fill:C.panel, stroke:it[3], 'stroke-width': hero ? 2 : 1}));
+        txt(svg, x+105, 92,  it[1], 11, C.mut2, 'middle', 700);
+        txt(svg, x+105, 148, it[0], hero ? 40 : 34, it[3], 'middle', 700);
+        txt(svg, x+105, 186, it[2], 11, C.mut, 'middle');
+        if(i < 3 && reveal > i+1) txt(svg, x+219, 152, '›', 26, C.mut2, 'middle', 700);
+      });
+
+      if(reveal >= 5){
+        svg.appendChild(svgEl('rect',{x:62, y:266, width:876, height:104, rx:12,
+          fill:C.panel, stroke:C.bid, 'stroke-width':2}));
+        txt(svg, 500, 306, 'Your provider finishes the basic rate for you.', 22, C.txt, 'middle', 700);
+        txt(svg, 500, 342, 'Nobody finishes the rest.', 22, C.bid, 'middle', 700);
+      }
+
+      if(reveal >= 6){
+        svg.appendChild(svgEl('rect',{x:62, y:396, width:876, height:88, rx:12,
+          fill:'#10161F', stroke:C.relief, 'stroke-dasharray':'7 5', 'stroke-width':2}));
+        txt(svg, 500, 428, 'ALL OF THIS ASSUMED YOU CAN PUT ' + gbp(m.gross) + ' IN', 12, C.mut2, 'middle', 700);
+        txt(svg, 500, 460, 'For some people, the limit itself shrinks.', 20, C.relief, 'middle', 700);
+      }
+    },
+    side(){
+      const m = model(salary, net);
+      if(reveal >= 6){
+        return card('Next', 'THE LIMIT', 'gold')
+          + `<div class="callout"><b>When the allowance shrinks.</b> Above a certain income the amount you are allowed to contribute is reduced — and the relief goes with it.</div>`;
+      }
+      return card('Into the pot', gbp(m.gross), 'gold')
+        + card('Net cost', gbp(m.outOfPocket), reveal >= 4 ? 'hero' : '')
+        + `<div class="callout warn"><b>Locked away for decades.</b> That is a real trade-off, and not one this video can weigh for you.</div>`;
+    }
+  }
+];
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+/* Rebuilding the sidebar on every slider tick restarts each card's
+   entry animation, which reads as flicker. Rebuild only when the
+   structure changes (new scene); otherwise swap values in place. */
+let sideKey = null;
+function renderSide(html, key){
+  const el = $('side');
+  if(key !== sideKey){
+    el.innerHTML = html;
+    sideKey = key;
+    return;
+  }
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+
+  // card wrappers: class only (hero/bad/gold can flip) — never touch their children
+  const oldCards = el.querySelectorAll('.card');
+  const newCards = tmp.querySelectorAll('.card');
+  // text-bearing nodes: swap innerHTML, nested <small>/<b> included
+  const oldTxt = el.querySelectorAll('.card .k, .card .v, .callout');
+  const newTxt = tmp.querySelectorAll('.card .k, .card .v, .callout');
+
+  if(oldCards.length !== newCards.length || oldTxt.length !== newTxt.length){
+    el.innerHTML = html;
+    return;
+  }
+  oldCards.forEach((n, i) => {
+    if(n.className !== newCards[i].className) n.className = newCards[i].className;
+  });
+  oldTxt.forEach((n, i) => {
+    if(n.innerHTML !== newTxt[i].innerHTML) n.innerHTML = newTxt[i].innerHTML;
+  });
+}
+
+function render(){
+  const s = scenes[scene];
+  const m = model(salary, net);
+
+  // topbar
+  $('st-year').textContent = 'TAX YEAR ' + TAX_YEAR;
+  $('disc-year').textContent = JURIS.toUpperCase() + ' · ' + TAX_YEAR;
+  $('disc-build').textContent = 'MONEYINTERNALS.COM · ' + BUILD;
+  $('st-salary').textContent = gbp(salary);
+  $('st-net').textContent = gbp(m.net);
+  $('st-pot').textContent = gbp(m.gross);
+  $('st-relief').textContent = claimed ? gbp(m.relief) : '—';
+  $('st-relief').className = 'v tnum ' + (claimed ? 'paid' : 'pending');
+
+  // heading
+  const isPay  = (scene === 0 && payslip);
+  const isReach= (scene === 0 && reach);
+  const isCode = (scene === 3 && taxcode);
+  $('title').textContent = isPay ? 'The payslip test'
+    : isReach ? 'Who this actually applies to'
+    : isCode ? 'Why a tax code goes stale'
+    : s.title;
+  $('sub').textContent = isPay
+    ? 'Two payslips, same salary, same £5,000 going into a pension. One has already delivered all the relief. The other has not — and the difference shows up in take-home pay.'
+    : isReach
+    ? 'The higher-rate slice exists from £50,271 upward. This video uses £100,000 because the arithmetic is cleaner, not because the mechanism is different.'
+    : isCode
+    ? 'The tax code route pays the relief through future payslips. That means it works from an estimate of a year that has not happened yet.'
+    : s.sub;
+
+  // viz
+  const svg = makeSVG();
+  s.draw(svg);
+  $('viz').replaceChildren(svg);
+
+  // side
+  renderSide(s.side(), s.id + (s.id==='payoff'? ':r'+(reveal>=6?6:0) : '') + (payslip?':pay':'') + (reach?':reach':'') + (taxcode?':code':''));
+
+  // controls
+  $('ctl-net').classList.toggle('hidden', !s.controls.net);
+  $('ctl-salary').classList.toggle('hidden', !s.controls.salary);
+  $('ctl-claim').classList.toggle('hidden', !s.controls.claim);
+  $('ctl-presets').classList.toggle('hidden', !s.controls.presets);
+
+  $('netVal').textContent = gbp(net);
+  $('salaryVal').textContent = gbp(salary);
+  $('claimBtn').textContent = claimed ? 'CLAIMED' : 'NOT CLAIMED';
+  $('claimBtn').className = 'toggle ' + (claimed ? 'on' : 'off');
+  $('claimBtn').setAttribute('aria-pressed', claimed ? 'true' : 'false');
+
+  fill($('netRange'));
+  fill($('salary'));
+
+  // stepper
+  $('scnCount').textContent = String(scene+1).padStart(2,'0') + ' / ' + String(scenes.length).padStart(2,'0');
+  $('scnCaption').innerHTML = isPay
+    ? 'Find <b>taxable pay</b> — lower than gross, or the same as gross?'
+    : isReach
+    ? 'Identical mechanism <b>anywhere above £50,270</b> — only the slice changes'
+    : isCode
+    ? 'The code carries an <b>estimate</b> forward — and estimates drift'
+    : s.caption;
+  $('prev').disabled = scene === 0;
+  $('next').disabled = (scene === scenes.length - 1) && !(scenes[scene].id === 'payoff' && reveal < 6);
+
+  document.querySelectorAll('#ctl-presets button').forEach(b=>{
+    b.classList.toggle('active', +b.dataset.salary === salary);
+  });
+}
+
+function fill(el){
+  const pct = (el.value - el.min) / (el.max - el.min) * 100;
+  el.style.setProperty('--fill', pct + '%');
+}
+
+/* ============================================================
+   EVENTS
+   ============================================================ */
+/* Render synchronously. Do NOT put this behind requestAnimationFrame:
+   Chrome pauses rAF when it thinks the window isn't visible, which is
+   what happens in --app mode behind OBS window capture. */
+function goto(n){
+  scene = Math.max(0, Math.min(scenes.length-1, n));
+  reveal = 0;
+  render();
+}
+/* On the payoff scene, → and Next reveal the numbers one at a time
+   so each lands on the word, instead of the screen sitting static. */
+function advance(){
+  if(scenes[scene].id === 'payoff' && reveal < 6){ reveal++; render(); return; }
+  goto(scene + 1);
+}
+
+$('netRange').addEventListener('input', e => { net = +e.target.value; render(); });
+$('salary').addEventListener('input', e => { salary = +e.target.value; render(); });
+$('claimBtn').addEventListener('click', () => { claimed = !claimed; render(); });
+document.querySelectorAll('#ctl-presets button').forEach(b=>{
+  b.addEventListener('click', () => { salary = +b.dataset.salary; $('salary').value = salary; render(); });
+});
+$('prev').addEventListener('click', () => goto(scene-1));
+$('next').addEventListener('click', advance);
+
+document.addEventListener('keydown', e => {
+  const a = document.activeElement;
+  if(a && (a.tagName === 'INPUT' || a.tagName === 'BUTTON')) return;
+  if(e.key === 'ArrowRight'){ e.preventDefault(); advance(); }
+  if(e.key === 'ArrowLeft'){  e.preventDefault(); goto(scene - 1); }
+  if(/^[1-8]$/.test(e.key))   goto(+e.key - 1);
+  if(e.key === 'c' || e.key === 'C'){ claimed = !claimed; render(); }
+  if(e.key === 'p' || e.key === 'P'){ if(scene === 0){ payslip = !payslip; reach = false; render(); } }
+  if(e.key === 'w' || e.key === 'W'){ if(scene === 0){ reach = !reach; payslip = false; render(); } }
+  if(e.key === 't' || e.key === 'T'){ if(scene === 3){ taxcode = !taxcode; render(); } }
+});
+
+render();
+
+/* ============================================================
+   SANITY TABLE — call sanityTable() in the console when writing
+   the script. Outputs markdown to paste straight in. Never
+   hand-type these figures.
+   ============================================================ */
+function sanityTable(){
+  const rows = [[60000,4000],[100000,4000],[100000,8000],[110000,4000],[130000,4000]];
+  const head = ['Salary','You pay','In the pot','Tax before','Tax after','Back to you','Net cost','PA restored'];
+  const body = rows.map(([sal,n])=>{
+    const m = model(sal,n);
+    return [gbp(sal), gbp(m.net), gbp(m.gross), gbp(m.before), gbp(m.after),
+            gbp(m.relief), gbp(m.outOfPocket), gbp(m.paGain)];
+  });
+  const w = head.map((h,i)=> Math.max(h.length, ...body.map(r=>r[i].length)));
+  const line = (cells) => '| ' + cells.map((c,i)=>c.padEnd(w[i])).join(' | ') + ' |';
+  const out = [
+    'SANITY TABLE — ' + TAX_YEAR + ' · ' + JURIS,
+    line(head),
+    '|' + w.map(n=>'-'.repeat(n+2)).join('|') + '|',
+    ...body.map(line)
+  ].join('\n');
+  console.log(out);
+  return out;
+}
+window.sanityTable = sanityTable;
+</script>
+</body>
+</html>
