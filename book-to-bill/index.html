@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Order Queue — Money Internals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0B0E13; --panel:#121821; --panel2:#171F2A; --line:#232A33; --line2:#2C3540;
+  --txt:#E6EAF0; --mut:#8B94A3; --mut2:#5C6675;
+  --bid:#2EBD85; --ask:#F6465D; --queue:#E8B33C; --demand:#4A9EDA;
+  --accent:#2EBD85;
+  --sans:'Inter',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+  --r:10px;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--txt); font-family:var(--sans); font-weight:500;
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.tnum{font-variant-numeric:tabular-nums}
+
+/* ---------- topbar ---------- */
+.topbar{
+  display:flex; align-items:center; gap:26px; padding:12px 20px;
+  border-bottom:1px solid var(--line); background:var(--panel);
+}
+.brand{display:flex; align-items:center; gap:10px}
+.brand .name{font-size:16px; letter-spacing:.3px}
+.brand .name b{color:var(--bid); font-weight:700}
+.ticker{font-family:var(--mono); font-size:12px; color:var(--mut); letter-spacing:2px}
+.stats{margin-left:auto; display:flex; gap:26px}
+.stat-h{display:flex; flex-direction:column; align-items:flex-end}
+.stat-h .k{font-size:10px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2)}
+.stat-h .v{font-family:var(--mono); font-size:17px; font-weight:700}
+#st-b2b.hot{color:var(--queue)}
+#st-rev{color:var(--bid)}
+#st-back{color:var(--queue)}
+
+/* ---------- layout ---------- */
+.stage{flex:1; display:grid; grid-template-columns:1fr 360px; min-height:0; position:relative}
+.main{display:flex; flex-direction:column; padding:22px 26px 96px; min-width:0; min-height:0} /* bottom strip reserved for the corner counter */
+.main h1{font-size:26px; font-weight:700; letter-spacing:-.3px}
+.main .sub{color:var(--mut); font-size:15px; margin-top:6px; line-height:1.45; max-width:70ch}
+.viz{flex:1; margin-top:14px; min-height:0; display:flex; align-items:stretch}
+.viz svg{width:100%; height:100%}
+.side{
+  border-left:1px solid var(--line); background:var(--panel); padding:18px;
+  display:flex; flex-direction:column; gap:12px; overflow-y:auto;
+}
+.card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--r); padding:13px 16px}
+.card .k{font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:var(--mut2); margin-bottom:4px}
+.card .v{font-family:var(--mono); font-size:26px; font-weight:700; font-variant-numeric:tabular-nums}
+.card .v small{font-size:14px; color:var(--mut); font-weight:500}
+.card.hero{border-color:var(--bid)}
+.card.hero .v{color:var(--bid); font-size:31px}
+.card.bad{border-color:var(--ask)}
+.card.bad .v{color:var(--ask)}
+.card.gold{border-color:var(--queue)}
+.card.gold .v{color:var(--queue)}
+.card.blue .v{color:var(--demand)}
+.callout{
+  background:var(--panel2); border-left:3px solid var(--queue); border-radius:0 var(--r) var(--r) 0;
+  padding:12px 15px; font-size:14.5px; line-height:1.5;
+}
+.callout b{color:var(--queue)}
+.callout.warn{border-left-color:var(--ask)}
+.callout.warn b{color:var(--ask)}
+.callout.good{border-left-color:var(--bid)}
+.callout.good b{color:var(--bid)}
+.callout.blue{border-left-color:var(--demand)}
+.callout.blue b{color:var(--demand)}
+
+/* ---------- corner backlog counter (persistent, all scenes) ---------- */
+.corner{
+  position:absolute; right:378px; bottom:14px; z-index:5;
+  background:var(--panel2); border:1px solid var(--line2); border-radius:8px;
+  padding:8px 14px; text-align:right; transition:transform .4s, border-color .4s;
+}
+.corner .k{font-size:9px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2)}
+.corner .v{font-family:var(--mono); font-size:19px; font-weight:700; color:var(--queue); font-variant-numeric:tabular-nums}
+.corner.spot{transform:scale(1.35); transform-origin:bottom right; border-color:var(--queue)}
+
+/* ---------- controls strip ---------- */
+.controls{
+  display:flex; align-items:center; gap:22px; flex-wrap:wrap;
+  padding:12px 26px; border-top:1px solid var(--line); background:var(--panel);
+}
+.ctl{display:flex; align-items:center; gap:12px}
+.ctl.hidden{display:none}
+.ctl .lbl{font-size:11px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2); white-space:nowrap}
+.ctl .val{font-family:var(--mono); font-size:16px; font-weight:700; min-width:80px}
+.ctl .val.blue{color:var(--demand)}
+.ctl .val.gold{color:var(--queue)}
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:220px; height:6px; border-radius:3px;
+  background:linear-gradient(to right, var(--demand) var(--fill,0%), var(--line2) var(--fill,0%));
+  outline:none; cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+  background:var(--txt); border:3px solid var(--demand); cursor:grab;
+}
+input[type=range]:focus-visible{outline:2px solid var(--txt); outline-offset:3px}
+#fabRange{background:linear-gradient(to right, var(--queue) var(--fill,0%), var(--line2) var(--fill,0%))}
+#fabRange::-webkit-slider-thumb{border-color:var(--queue)}
+.btn{
+  font-family:var(--mono); font-size:13px; padding:9px 16px; border-radius:6px;
+  border:1px solid var(--line2); background:var(--panel2); color:var(--mut);
+  cursor:pointer; transition:.15s; letter-spacing:.5px;
+}
+.btn:hover{border-color:var(--accent); color:var(--accent)}
+.btn.book:hover{border-color:var(--demand); color:var(--demand)}
+.btn.ship:hover{border-color:var(--bid); color:var(--bid)}
+.btn.armed{background:var(--queue); border-color:var(--queue); color:#0B0E13; font-weight:700}
+
+/* ---------- stepper ---------- */
+.stepper{
+  display:grid; grid-template-columns:auto 1fr auto auto; align-items:center; gap:18px;
+  padding:11px 20px; border-top:1px solid var(--line); background:var(--panel);
+}
+.scn-count{font-family:var(--mono); font-size:14px; color:var(--mut); letter-spacing:.5px; white-space:nowrap}
+.scn-caption{font-size:15px}
+.scn-caption b{color:var(--accent)}
+.disclaimer{font-size:11px; color:var(--mut2); white-space:nowrap}
+.scn-nav{display:flex; gap:8px}
+.scn-nav button{
+  font-family:var(--mono); font-size:13px; padding:7px 14px; border-radius:6px;
+  border:1px solid var(--line2); background:var(--panel2); color:var(--mut); cursor:pointer;
+}
+.scn-nav button:hover{border-color:var(--accent); color:var(--accent)}
+
+/* ---------- hook overlay ---------- */
+.reveal0{opacity:0; transition:opacity .8s}
+.reveal1{opacity:1}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="name">MONEY <b>INTERNALS</b></span></div>
+  <span class="ticker">CAPACITY-CONSTRAINED PIPELINE · SIM</span>
+  <div class="stats">
+    <div class="stat-h"><span class="k">Book-to-bill</span><span class="v tnum" id="st-b2b">—</span></div>
+    <div class="stat-h"><span class="k">Revenue /q</span><span class="v tnum" id="st-rev">—</span></div>
+    <div class="stat-h"><span class="k">Backlog</span><span class="v tnum" id="st-back">—</span></div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="main">
+    <h1 id="title"></h1>
+    <div class="sub" id="sub"></div>
+    <div class="viz"><svg id="viz" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet"></svg></div>
+  </div>
+  <div class="side" id="side"></div>
+  <div class="corner" id="corner">
+    <div class="k">Units queued · unfilled orders</div>
+    <div class="v" id="cornerV">0</div>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="ctl" id="ctl-demand">
+    <span class="lbl">Demand</span>
+    <input type="range" id="demandRange" min="50" max="300" step="5" value="100">
+    <span class="val blue tnum" id="demandVal">100 /q</span>
+  </div>
+  <div class="ctl" id="ctl-fab">
+    <span class="lbl">New fab online in</span>
+    <input type="range" id="fabRange" min="2" max="16" step="1" value="8">
+    <span class="val gold tnum" id="fabVal">8 q</span>
+    <button class="btn" id="armBtn">ARM FAB [A]</button>
+  </div>
+  <div class="ctl" id="ctl-manual">
+    <button class="btn book" id="bookBtn">BOOK ORDER [B]</button>
+    <button class="btn ship" id="shipBtn">SHIP UNIT [S]</button>
+  </div>
+</div>
+
+<div class="stepper">
+  <span class="scn-count" id="scnCount"></span>
+  <span class="scn-caption" id="scnCaption"></span>
+  <span class="disclaimer">Illustrative simulator · index units, no company's data · educational — not financial advice</span>
+  <div class="scn-nav">
+    <button id="prev">← Prev</button>
+    <button id="next">Next →</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   BUILD b2b-b01 — "Demand is 2×. Revenue is 1.7×."
+   Key map (reconcile script cues against this before recording):
+     → / Next   advance (in-scene reveals on scenes 4, 7, 8, then next scene)
+     ←          previous scene       1–8   jump to scene
+     B          book order (scene 2) S     ship unit (scene 2)
+     D          focus demand slider  F     focus fab slider
+     A          arm the fab (scene 5)
+     Space      pause/resume all sims (retakes)
+     R          reset current scene's local sim (retakes)
+   Baseline arithmetic (call sanity() in console):
+     capacity 170/q fixed · demand slider 50–300/q
+     demand 100 → 200 = 2.0× demand, revenue 100 → 170 = 1.7×  ← the title
+     excess 30/q becomes backlog. Fab adds +60 capacity after N quarters.
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const C = {bg:'#0B0E13', panel:'#171F2A', line:'#232A33', line2:'#2C3540',
+           txt:'#E6EAF0', mut:'#8B94A3', mut2:'#5C6675',
+           bid:'#2EBD85', ask:'#F6465D', queue:'#E8B33C', demand:'#4A9EDA'};
+const NS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs){ const el = document.createElementNS(NS, tag);
+  for(const k in attrs) el.setAttribute(k, attrs[k]); return el; }
+function txt(svg, x, y, s, size=14, fill=C.txt, anchor='start', weight=500, mono=false){
+  const t = svgEl('text', {x, y, 'font-size':size, fill, 'text-anchor':anchor,
+    'font-weight':weight, 'font-family': mono ? "'JetBrains Mono',monospace" : "'Inter',sans-serif"});
+  t.textContent = s; svg.appendChild(t); return t; }
+const fmt = n => Math.round(n).toLocaleString('en-GB');
+
+/* ============================================================
+   SIMS. One global sim drives the corner counter and the hook —
+   it never resets and its demand is fixed at 200 vs capacity 170,
+   so the queue ticks for the entire video. Scenes 3 and 5 run
+   their own local sims so every retake starts deterministic.
+   ============================================================ */
+const CAP = 170, TICK_MS = 600, WINDOW = 48;
+let paused = false;
+
+function mkSim(demand, backlog=0){
+  return {t:0, demand, capacity:CAP, backlog, hist:[], fabIn:null, fabAt:null};
+}
+function stepSim(s){
+  s.t++;
+  if(s.fabIn !== null){ s.fabIn--; if(s.fabIn <= 0){ s.capacity += 60; s.fabIn = null; s.fabAt = s.t; } }
+  const orders = s.demand;
+  const ships  = Math.min(s.capacity, s.backlog + orders);
+  s.backlog   += orders - ships;
+  s.hist.push({t:s.t, orders, ships, backlog:s.backlog, cap:s.capacity});
+  if(s.hist.length > WINDOW) s.hist.shift();
+}
+/* pre-seed a sim with n quarters of history so charts open alive */
+function seed(s, n){ for(let i=0;i<n;i++) stepSim(s); return s; }
+
+const gSim   = seed(mkSim(200), 10);      // global: queue always growing at 30/q
+let dragSim  = seed(mkSim(100), 14);      // scene 3: starts balanced at 1.0×
+let fabSim   = seed(mkSim(200, 400), 14); // scene 5: constrained, queue running
+let manual   = {booked:0, shipped:0, log:[]};  // scene 2 toy
+
+/* ============================================================
+   STATE
+   ============================================================ */
+let scene = 0, reveal = 0, gen = 0, hookReveal = false;
+function later(ms, fn){ const g = gen; setTimeout(()=>{ if(g === gen) fn(); }, ms); }
+
+/* ============================================================
+   CHART HELPER — right-anchored rolling window, autoscaled
+   ============================================================ */
+function drawChart(svg, x, y, w, h, series, opts={}){
+  svg.appendChild(svgEl('rect',{x, y, width:w, height:h, rx:8, fill:C.panel, stroke:C.line}));
+  let ymax = opts.ymax || 0;
+  series.forEach(s => s.data.forEach(v => { if(v > ymax) ymax = v; }));
+  ymax = Math.max(ymax * 1.15, 10);
+  for(let i=1;i<=3;i++){
+    const gy = y + h - (h-24)*i/3 - 12;
+    svg.appendChild(svgEl('line',{x1:x+10, y1:gy, x2:x+w-10, y2:gy, stroke:C.line, 'stroke-dasharray':'3 5'}));
+  }
+  const n = Math.max(...series.map(s => s.data.length));
+  const px = i => x + 14 + (w-28) * (i/(Math.max(n-1,1)));
+  const py = v => y + h - 12 - (h-36) * (v/ymax);
+  series.forEach(s => {
+    if(!s.data.length) return;
+    const off = n - s.data.length;
+    const pts = s.data.map((v,i) => px(i+off)+','+py(v)).join(' ');
+    if(s.area){
+      const a = svgEl('polygon',{points: px(off)+','+py(0)+' '+pts+' '+px(n-1)+','+py(0),
+        fill:s.color, opacity:.12}); svg.appendChild(a);
+    }
+    svg.appendChild(svgEl('polyline',{points:pts, fill:'none', stroke:s.color,
+      'stroke-width':s.width||2.5, 'stroke-dasharray': s.dash||'none',
+      'stroke-linejoin':'round'}));
+  });
+  /* End-of-line labels, collision-resolved. Two series can share a pixel row —
+     on the drag scene revenue sits exactly ON capacity once demand passes it,
+     and a runaway backlog squashes demand/revenue/capacity together at the
+     floor. Labels are pushed apart to a minimum row height and tied back to
+     their line with a dot + hairline, so a displaced label is never ambiguous. */
+  const LH = 17, topB = y + 30, botB = y + h - 8;
+  const labels = series.filter(s => s.data.length).map(s => {
+    const last = s.data[s.data.length-1];
+    return {want: py(last)-8, pos: py(last)-8, endY: py(last),
+            color: s.color, text: s.label+' '+fmt(last)};
+  }).sort((a,b) => a.want - b.want);
+  for(let i=1;i<labels.length;i++)                       // push down from the top
+    labels[i].pos = Math.max(labels[i].pos, labels[i-1].pos + LH);
+  if(labels.length && labels[labels.length-1].pos > botB){
+    labels[labels.length-1].pos = botB;                  // then back up off the floor
+    for(let i=labels.length-2;i>=0;i--)
+      labels[i].pos = Math.min(labels[i].pos, labels[i+1].pos - LH);
+  }
+  labels.forEach(L => {
+    L.pos = Math.max(topB, Math.min(botB, L.pos));
+    if(Math.abs(L.pos - L.want) > 2){                    // moved — tie it to its line
+      svg.appendChild(svgEl('line',{x1:x+w-7, y1:L.endY, x2:x+w-7, y2:L.pos-4,
+        stroke:L.color, 'stroke-width':1, opacity:.55}));
+      svg.appendChild(svgEl('circle',{cx:x+w-7, cy:L.endY, r:2.5, fill:L.color}));
+    }
+    const cw = L.text.length*7.3 + 12;                   // JetBrains Mono ≈ .6em advance
+    svg.appendChild(svgEl('rect',{x:x+w-14-cw, y:L.pos-12, width:cw, height:16, rx:3,
+      fill:C.panel, opacity:.93}));
+    txt(svg, x+w-14, L.pos, L.text, 12.5, L.color, 'end', 700, true);
+  });
+  if(opts.title) txt(svg, x+14, y+22, opts.title, 12, C.mut2, 'start', 700, true);
+}
+
+/* ============================================================
+   SCENE DRAWINGS
+   ============================================================ */
+
+/* -- 1 · HOOK: orders streaming into a queue, mid-action ------- */
+function drawHook(svg){
+  const h = gSim.hist, last = h[h.length-1];
+  // incoming order chips (CSS-free drift via tick phase)
+  txt(svg, 60, 46, 'ORDERS ARRIVING', 13, C.mut2, 'start', 700, true);
+  for(let i=0;i<5;i++){
+    const phase = ((gSim.t*37 + i*97) % 260);
+    svg.appendChild(svgEl('rect',{x:60+phase, y:66+i*26, width:34, height:16, rx:3,
+      fill:C.demand, opacity:.5 + .5*(phase/260)}));
+  }
+  svg.appendChild(svgEl('path',{d:'M 380 100 L 430 100 L 430 92 L 452 106 L 430 120 L 430 112 L 380 112 Z',
+    fill:C.mut2}));
+  // the queue: a grid of chips, height = backlog
+  const rows = Math.min(Math.floor(last.backlog/30), 14);
+  txt(svg, 500, 46, 'THE QUEUE', 13, C.queue, 'start', 700, true);
+  for(let r=0;r<rows;r++) for(let c=0;c<6;c++){
+    svg.appendChild(svgEl('rect',{x:500+c*40, y:420-r*26, width:34, height:20, rx:3,
+      fill:C.queue, opacity:.35 + .04*r}));
+  }
+  svg.appendChild(svgEl('line',{x1:490, y1:444, x2:760, y2:444, stroke:C.line2}));
+  txt(svg, 620, 46, '· '+fmt(last.backlog)+' units', 13, C.queue, 'start', 700, true);
+  // shipping out the bottom, at capacity only
+  txt(svg, 800, 46, 'SHIPPING (AT CAPACITY)', 13, C.bid, 'start', 700, true);
+  txt(svg, 800, 78, fmt(last.ships)+' /q', 22, C.bid, 'start', 700, true);
+  txt(svg, 800, 104, 'demand '+fmt(last.orders)+' /q', 14, C.demand, 'start', 700, true);
+  drawChart(svg, 60, 200, 380, 260, [
+    {data:h.map(p=>p.orders),  color:C.demand, label:'DEMAND'},
+    {data:h.map(p=>p.ships),   color:C.bid,    label:'SHIPPED'},
+    {data:h.map(p=>p.backlog), color:C.queue,  label:'QUEUE', area:true}
+  ], {title:'LAST '+h.length+' QUARTERS'});
+  // headline overlay — reveals AFTER the queue has visibly filled (reveal rule)
+  const g = svgEl('g',{class: hookReveal ? 'reveal0 reveal1' : 'reveal0'});
+  const bx = 250, by = 496;
+  g.appendChild(svgEl('rect',{x:bx, y:by-34, width:500, height:52, rx:10,
+    fill:C.panel, stroke:C.queue, 'stroke-width':1.5}));
+  const t1 = svgEl('text',{x:500, y:by, 'font-size':24, 'text-anchor':'middle',
+    'font-weight':700, 'font-family':"'JetBrains Mono',monospace"});
+  const s1 = svgEl('tspan',{fill:C.demand}); s1.textContent = '2× DEMAND';
+  const s2 = svgEl('tspan',{fill:C.mut2});   s2.textContent = '  ·  ';
+  const s3 = svgEl('tspan',{fill:C.bid});    s3.textContent = '1.7× REVENUE';
+  t1.appendChild(s1); t1.appendChild(s2); t1.appendChild(s3);
+  g.appendChild(t1); svg.appendChild(g);
+}
+
+/* -- 2 · ORDER ≠ REVENUE: the toy --------------------------- */
+function drawManual(svg){
+  // left: order book
+  txt(svg, 120, 50, 'ORDER BOOK', 15, C.demand, 'start', 700, true);
+  svg.appendChild(svgEl('rect',{x:100, y:66, width:340, height:400, rx:10,
+    fill:C.panel, stroke:C.line}));
+  const open = manual.booked - manual.shipped;
+  for(let i=0;i<Math.min(manual.booked,12);i++){
+    const shipped = i < manual.shipped;
+    svg.appendChild(svgEl('rect',{x:124, y:430 - i*30, width:290, height:24, rx:4,
+      fill: shipped ? C.panel : C.demand, opacity: shipped ? 1 : .85,
+      stroke: shipped ? C.line2 : 'none'}));
+    txt(svg, 138, 447 - i*30, 'ORDER #'+(i+1)+(shipped ? '  · SHIPPED' : '  · OPEN'),
+        12, shipped ? C.mut2 : '#0B0E13', 'start', 700, true);
+  }
+  txt(svg, 120, 496, 'open orders: '+open, 14, C.demand, 'start', 700, true);
+  // right: the P&L
+  txt(svg, 560, 50, 'P&L — REVENUE', 15, C.bid, 'start', 700, true);
+  svg.appendChild(svgEl('rect',{x:540, y:66, width:340, height:400, rx:10,
+    fill:C.panel, stroke:C.line}));
+  const steps = manual.log;   // 1 entry per action: revenue level after it
+  if(steps.length){
+    const px = i => 564 + 292 * (i/Math.max(steps.length-1,1));
+    const py = v => 440 - 340 * (v/Math.max(manual.booked,4));
+    let d = 'M '+px(0)+' '+py(steps[0]);
+    for(let i=1;i<steps.length;i++) d += ' L '+px(i)+' '+py(steps[i-1])+' L '+px(i)+' '+py(steps[i]);
+    svg.appendChild(svgEl('path',{d, fill:'none', stroke:C.bid, 'stroke-width':3}));
+  } else {
+    svg.appendChild(svgEl('line',{x1:564, y1:440, x2:856, y2:440, stroke:C.line2}));
+  }
+  txt(svg, 560, 496, 'revenue recognised: '+manual.shipped+' units', 14, C.bid, 'start', 700, true);
+  // book-to-bill readout — hidden until the second booking round (reveal rule)
+  if(manual.booked >= 4){
+    const b2b = (manual.booked / Math.max(manual.shipped,1)).toFixed(1);
+    svg.appendChild(svgEl('rect',{x:340, y:508, width:320, height:44, rx:10,
+      fill:C.panel, stroke:C.queue, 'stroke-width':1.5}));
+    txt(svg, 500, 537, 'BOOK-TO-BILL  '+b2b, 20, C.queue, 'middle', 700, true);
+  }
+}
+
+/* -- 3 · THE DRAG: demand slider vs the two lines ------------- */
+function drawDrag(svg){
+  const h = dragSim.hist, last = h[h.length-1];
+  drawChart(svg, 60, 40, 880, 430, [
+    {data:h.map(p=>p.cap),     color:C.mut2,   label:'CAPACITY', dash:'6 6', width:2},
+    {data:h.map(p=>p.orders),  color:C.demand, label:'DEMAND'},
+    {data:h.map(p=>p.ships),   color:C.bid,    label:'REVENUE',  width:3},
+    {data:h.map(p=>p.backlog), color:C.queue,  label:'BACKLOG',  area:true, width:3}
+  ], {title:'DEMAND vs REVENUE vs THE QUEUE · quarterly'});
+  const dm = (last.orders/100).toFixed(1), rm = (last.ships/100).toFixed(2);
+  txt(svg, 60, 516, 'demand '+dm+'×', 20, C.demand, 'start', 700, true);
+  txt(svg, 300, 516, 'revenue '+(+rm).toFixed(1)+'×', 20, C.bid, 'start', 700, true);
+  txt(svg, 560, 516, 'queueing '+fmt(Math.max(last.orders-last.ships,0))+' /q', 20, C.queue, 'start', 700, true);
+}
+
+/* -- 4 · THE CONSTRAINT STACK -------------------------------- */
+function drawStack(svg){
+  const layers = [
+    ['MEMORY (HBM)', 'The 3 makers have reportedly sold their entire 2027 output',
+     '1 HBM4 stack ≈ 3× the wafers of ordinary memory', C.ask],
+    ['ADVANCED PACKAGING', 'Chip and memory must be physically bonded — one company at scale',
+     'Capacity ~4× in 2 years. Still sold out.', C.queue],
+    ['POWER · SITES · CONSTRUCTION', 'The named constraints at the top are not chips at all',
+     'Chips with nowhere to plug in', C.demand]
+  ];
+  txt(svg, 120, 54, 'WHY NOT JUST BUILD MORE? — THE STACK', 15, C.mut2, 'start', 700, true);
+  layers.forEach((L,i)=>{
+    const y = 420 - i*130, lit = reveal > i;
+    svg.appendChild(svgEl('rect',{x:120, y, width:760, height:110, rx:10,
+      fill: lit ? C.panel : '#10141B', stroke: lit ? L[3] : C.line,
+      'stroke-width': lit ? 2 : 1, opacity: lit ? 1 : .45}));
+    if(lit) svg.appendChild(svgEl('rect',{x:120, y, width:5, height:110, rx:2, fill:L[3]}));
+    txt(svg, 150, y+34, L[0], 17, lit ? L[3] : C.mut2, 'start', 700);
+    if(lit){
+      txt(svg, 150, y+62, L[1], 14, C.mut, 'start');
+      txt(svg, 150, y+88, L[2], 13.5, L[3], 'start', 700);
+    }
+  });
+  txt(svg, 500, 556, reveal < 3 ? '→ to light the next layer' :
+      'Every layer has to clear. The slowest one sets the pace.', 13, C.mut2, 'middle');
+}
+
+/* -- 5 · THE FAB LAG ----------------------------------------- */
+function drawFab(svg){
+  const h = fabSim.hist, last = h[h.length-1];
+  drawChart(svg, 60, 40, 880, 430, [
+    {data:h.map(p=>p.cap),     color:C.mut2,   label:'CAPACITY', dash:'6 6', width:2},
+    {data:h.map(p=>p.ships),   color:C.bid,    label:'REVENUE',  width:3},
+    {data:h.map(p=>p.backlog), color:C.queue,  label:'BACKLOG',  area:true, width:3}
+  ], {title:'NEW CAPACITY LANDS AS A STEP, NOT A RAMP'});
+  if(fabSim.fabIn !== null)
+    txt(svg, 60, 516, 'fab online in '+fabSim.fabIn+' quarters — nothing has changed yet',
+        18, C.queue, 'start', 700, true);
+  else if(fabSim.fabAt !== null)
+    txt(svg, 60, 516, 'fab online — capacity stepped, the queue is draining',
+        18, C.bid, 'start', 700, true);
+  else
+    txt(svg, 60, 516, 'set the lag, then ARM FAB [A]', 18, C.mut2, 'start', 700, true);
+}
+
+/* -- 6 · CISCO 2000–01 (pattern interrupt) -------------------- */
+function drawCisco(svg){
+  // different texture: lighter panel, historical annotations
+  svg.appendChild(svgEl('rect',{x:40, y:20, width:920, height:500, rx:12,
+    fill:'#151B26', stroke:C.line2}));
+  txt(svg, 70, 58, 'CISCO · 1999–2001', 16, C.txt, 'start', 700, true);
+  txt(svg, 70, 82, 'Stylised reconstruction of the shape — not actual data. Sources: fact-check.md', 12, C.mut2, 'start');
+  // stylised curves over 30 points: apparent orders inflate, real demand modest, both collapse
+  const N = 30, px = i => 90 + 780*(i/(N-1));
+  const apparent = [], real = [];
+  for(let i=0;i<N;i++){
+    const x = i/(N-1);
+    const boom = Math.exp(-Math.pow((x-.55)/.22, 2));          // peak mid-2000
+    const bust = x > .62 ? Math.exp(-(x-.62)*9) : 1;
+    apparent.push(60 + 300*boom*bust + 40*x*(x<.62?1:bust));
+    real.push(60 + 130*Math.min(x/.6,1)*(x>.62 ? Math.exp(-(x-.62)*7) : 1));
+  }
+  const py = v => 460 - v;
+  const poly = (data, color, w, area) => {
+    const pts = data.map((v,i)=>px(i)+','+py(v)).join(' ');
+    if(area) svg.appendChild(svgEl('polygon',{points:px(0)+','+py(0)+' '+pts+' '+px(N-1)+','+py(0),
+      fill:color, opacity:.09}));
+    svg.appendChild(svgEl('polyline',{points:pts, fill:'none', stroke:color, 'stroke-width':w,
+      'stroke-linejoin':'round'}));
+  };
+  poly(apparent, C.demand, 3, true);
+  poly(real, C.bid, 2.5, false);
+  txt(svg, 340, 130, 'APPARENT DEMAND — orders seen, double-orders included', 13, C.demand, 'start', 700, true);
+  txt(svg, 100, 330, 'REAL DEMAND', 13, C.bid, 'start', 700, true);
+  // the gap = the bullwhip
+  txt(svg, 480, 210, '} the copies', 14, C.queue, 'start', 700, true);
+  // write-off annotation
+  const wx = px(24);
+  svg.appendChild(svgEl('line',{x1:wx, y1:130, x2:wx, y2:460, stroke:C.ask, 'stroke-dasharray':'5 5', 'stroke-width':2}));
+  txt(svg, wx+10, 150, 'APRIL 2001', 13, C.ask, 'start', 700, true);
+  txt(svg, wx+10, 172, '$2.25B inventory write-off', 14, C.ask, 'start', 700);
+  txt(svg, 90, 492, 'summer 2000: components committed months ahead · $600M lent to manufacturers to buy parts',
+      13, C.mut, 'start');
+  txt(svg, 90, 512, 'the double-orders cancelled first — the backlog evaporated in months', 13, C.mut, 'start');
+}
+
+/* -- 7 · THE MIRROR: the seller as customer ------------------- */
+function drawMirror(svg){
+  const h = gSim.hist, last = h[h.length-1];
+  // top: the familiar queue, still running
+  drawChart(svg, 60, 34, 880, 200, [
+    {data:h.map(p=>p.ships),   color:C.bid,   label:'REVENUE', width:2.5},
+    {data:h.map(p=>p.backlog), color:C.queue, label:'QUEUE', area:true, width:2.5}
+  ], {title:'THE FIRST ORDER BOOK — customers queueing to buy'});
+  // bottom: the second order book — commitments, revealed stepwise
+  txt(svg, 60, 282, 'THE SECOND ORDER BOOK — the seller as customer, one layer down', 15, C.queue, 'start', 700, true);
+  txt(svg, 60, 304, 'Supply purchase commitments, as reported (Q2 FY2027 filing) — mostly memory', 12.5, C.mut2, 'start');
+  const bars = [['REST OF FY2027', 92], ['FY2028', 87], ['FY2029', 88]];
+  bars.forEach((b,i)=>{
+    if(reveal <= i) return;
+    const y = 330 + i*54, w = b[1]*7;
+    svg.appendChild(svgEl('rect',{x:230, y, width:w, height:38, rx:6, fill:C.queue, opacity:.8}));
+    txt(svg, 60, y+25, b[0], 13.5, C.mut, 'start', 700, true);
+    txt(svg, 240+w, y+25, '$'+b[1]+'B', 16, C.queue, 'start', 700, true);
+  });
+  if(reveal >= 4){
+    svg.appendChild(svgEl('rect',{x:60, y:500, width:600, height:48, rx:10,
+      fill:C.panel, stroke:C.queue, 'stroke-width':1.5}));
+    txt(svg, 70, 531, 'TOTAL COMMITTED: $279B — doubled in one quarter ($119B → $279B)',
+        15.5, C.queue, 'start', 700, true);
+  } else if(reveal >= 1 && reveal < 4){
+    txt(svg, 500, 540, '→ to reveal the next tranche', 13, C.mut2, 'middle');
+  }
+}
+
+/* -- 8 · PAYOFF ----------------------------------------------- */
+function drawPayoff(svg){
+  const last = gSim.hist[gSim.hist.length-1];
+  txt(svg, 500, 120, fmt(last.backlog), 74, C.queue, 'middle', 700, true).id = 'bigCounter';
+  txt(svg, 500, 156, 'UNITS QUEUED — TICKING SINCE 0:00 · REVENUE NEVER SPED UP', 13, C.mut2, 'middle', 700, true);
+  const lines = [
+    ['An order is not revenue', 'money arrives on shipment', C.bid],
+    ['Demand above capacity becomes a queue', 'growth caps at what the factory can build', C.demand],
+    ['A queue is only as good as the demand behind it', '— and the terms written on it', C.queue]
+  ];
+  lines.forEach((L,i)=>{
+    if(reveal <= i) return;
+    const y = 230 + i*86;
+    svg.appendChild(svgEl('rect',{x:150, y, width:700, height:66, rx:10,
+      fill:C.panel, stroke:L[2], 'stroke-width':1.5}));
+    txt(svg, 180, y+29, (i+1)+'.  '+L[0], 17, L[2], 'start', 700);
+    txt(svg, 180, y+52, L[1], 14, C.mut, 'start');
+  });
+  if(reveal >= 4)
+    txt(svg, 500, 540, 'CHALLENGE — find a setting where the backlog never drains. Comments.', 15, C.txt, 'middle', 700, true);
+}
+
+/* ============================================================
+   SCENES
+   ============================================================ */
+const scenes = [
+  { id:'hook',
+    caption:'Sold out until 2028 — <b>sold out of what, exactly?</b>',
+    title:'The order arrives. The money doesn’t.',
+    sub:'Orders are arriving faster than the factory can build. Everything above capacity lands in a queue.',
+    controls:{},
+    maxReveal:0,
+    draw: drawHook,
+    side(){
+      const last = gSim.hist[gSim.hist.length-1];
+      return card('Demand', fmt(last.orders)+' <small>/q</small>', 'blue')
+        + card('Shipping (capacity)', fmt(last.ships)+' <small>/q</small>', 'hero')
+        + card('Queueing', fmt(last.orders-last.ships)+' <small>/q</small>', 'gold')
+        + `<div class="callout"><b>Sold out ≠ paid.</b> The queue is filling in real time — the revenue line isn't.</div>`;
+    }},
+  { id:'orderrev',
+    caption:'<b>B</b> books an order · <b>S</b> ships a unit — watch which panel moves',
+    title:'An order is not revenue',
+    sub:'Revenue is recognised when the product ships — not when the order is signed.',
+    controls:{manual:true},
+    maxReveal:0,
+    draw: drawManual,
+    side(){
+      const open = manual.booked - manual.shipped;
+      let out = card('Orders booked', manual.booked, 'blue')
+        + card('Units shipped', manual.shipped, 'hero')
+        + card('Open orders', open, open>0 ? 'gold' : '');
+      if(manual.booked >= 4)
+        out += `<div class="callout"><b>Book-to-bill.</b> Orders in ÷ units out. Above 1, the queue grows — selling faster than you can build.</div>`;
+      else
+        out += `<div class="callout blue"><b>The rule.</b> "Sold out until 2028" is a statement about the queue, not the income statement.</div>`;
+      return out;
+    }},
+  { id:'drag',
+    caption:'Prediction first — <b>then</b> drag demand to 2× and watch both lines',
+    title:'Demand is 2×. Revenue is 1.7×.',
+    sub:'The revenue line isn’t tracking demand. It’s tracking capacity. Everything above the dashed line queues.',
+    controls:{demand:true},
+    maxReveal:0,
+    draw: drawDrag,
+    side(){
+      const last = dragSim.hist[dragSim.hist.length-1];
+      const b2b = (last.orders/Math.max(last.ships,1)).toFixed(2);
+      return card('Demand', (last.orders/100).toFixed(1)+'×', 'blue')
+        + card('Revenue', (last.ships/100).toFixed(1)+'×', 'hero')
+        + card('Book-to-bill', b2b, +b2b>1 ? 'gold' : '')
+        + card('Backlog', fmt(last.backlog)+' <small>units</small>', 'gold')
+        + `<div class="callout"><b>The missing growth didn't vanish.</b> It's queueing — bottom corner.</div>`;
+    }},
+  { id:'stack',
+    caption:'Why not build more? <b>→ lights each layer of the constraint stack</b>',
+    title:'The constraint is a stack',
+    sub:'Every layer has to clear for one more unit to ship. The slowest layer sets the pace for everyone above it.',
+    controls:{},
+    maxReveal:3,
+    draw: drawStack,
+    side(){
+      return card('Layers in the stack', '3', '')
+        + card('Layers that must clear', 'all', 'bad')
+        + `<div class="callout warn"><b>"Reportedly."</b> The 2027 memory sell-out is reported, not filed — the script says so out loud.</div>`
+        + `<div class="callout"><b>Wafer arithmetic.</b> 1 AI memory stack ≈ 3 ordinary ones. Reallocating doesn't create wafers.</div>`;
+    }},
+  { id:'fab',
+    caption:'Set the lag, <b>ARM FAB [A]</b> — capacity lands as a step, years out',
+    title:'New capacity arrives as a cliff, not a ramp',
+    sub:'A fab that breaks ground today changes nothing today. The queue is exactly as long as the build time.',
+    controls:{demand:true, fab:true},
+    maxReveal:0,
+    draw: drawFab,
+    side(){
+      const last = fabSim.hist[fabSim.hist.length-1];
+      let out = card('Capacity', fmt(last.cap)+' <small>/q</small>', '')
+        + card('Backlog', fmt(last.backlog)+' <small>units</small>', 'gold');
+      if(fabSim.fabIn !== null) out += card('Fab lands in', fabSim.fabIn+' <small>quarters</small>', 'blue');
+      if(fabSim.fabAt !== null) out += card('Fab landed', 'q'+fabSim.fabAt, 'hero');
+      out += `<div class="callout"><b>Why 2028 specifically.</b> The sell-out horizon is the build time — nothing changes until the step lands.</div>`;
+      return out;
+    }},
+  { id:'cisco',
+    caption:'The last time this mechanic ran: <b>Cisco, 2000–2001</b>',
+    title:'Is a backlog guaranteed money?',
+    sub:'Scarcity made customers double-order. Every layer saw demand bigger than reality — the bullwhip.',
+    controls:{},
+    maxReveal:0,
+    draw: drawCisco,
+    side(){
+      return card('Inventory write-off', '$2.25B', 'bad', 'April 2001')
+        + card('Lent to manufacturers', '$600M', '', 'interest-free, for parts')
+        + `<div class="callout warn"><b>The copies cancelled first.</b> The backlog evaporated in months — the committed inventory couldn't be sold.</div>`
+        + `<div class="callout good"><b>Not a prediction.</b> A resolved event — what the same mechanic did the last time it ran.</div>`;
+    }},
+  { id:'mirror',
+    caption:'The mirror image: <b>→ reveals the second order book</b> — the seller as customer',
+    title:'The second order book',
+    sub:'The constrained seller secures supply by becoming a queued customer one layer down. Someone always holds the risk.',
+    controls:{},
+    maxReveal:4,
+    draw: drawMirror,
+    side(){
+      return card('Commitments', '$279B', 'gold', 'was $119B one quarter ago')
+        + card('Due by end FY2029', '~$267B', '')
+        + `<div class="callout"><b>Mostly memory.</b> The same layer the whole stack is queueing for.</div>`
+        + `<div class="callout good"><b>If demand holds,</b> the queue clears and everyone ships. If it doesn't — the commitments don't cancel themselves.</div>`;
+    }},
+  { id:'payoff',
+    caption:'<b>→ reveals the takeaway</b> — then the challenge',
+    title:'A backlog is a queue, not a guarantee',
+    sub:'That corner number has been ticking since 0:00. The revenue line never once sped up to meet it.',
+    controls:{},
+    maxReveal:4,
+    draw: drawPayoff,
+    side(){
+      return card('Queue, since 0:00', fmt(gSim.hist[gSim.hist.length-1].backlog)+' <small>units</small>', 'gold')
+        + card('Revenue, since 0:00', 'capacity', 'hero', 'never demand')
+        + `<div class="callout"><b>The challenge.</b> Find a setting where the backlog never drains. What did you have to break?</div>`;
+    }}
+];
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+function card(k, v, cls='', small=''){
+  return `<div class="card ${cls}"><div class="k">${k}</div><div class="v">${v}${small?' <small>'+small+'</small>':''}</div></div>`;
+}
+function render(){
+  const sc = scenes[scene];
+  $('title').textContent = sc.title;
+  $('sub').textContent = sc.sub;
+  $('scnCount').textContent = 'SCENE '+(scene+1)+' / '+scenes.length;
+  $('scnCaption').innerHTML = sc.caption;
+  $('side').innerHTML = sc.side();
+  $('ctl-demand').classList.toggle('hidden', !sc.controls.demand);
+  $('ctl-fab').classList.toggle('hidden', !sc.controls.fab);
+  $('ctl-manual').classList.toggle('hidden', !sc.controls.manual);
+  const last = gSim.hist[gSim.hist.length-1];
+  const b2b = (last.orders/Math.max(last.ships,1));
+  $('st-b2b').textContent = b2b.toFixed(2);
+  $('st-b2b').classList.toggle('hot', b2b > 1.001);
+  $('st-rev').textContent = fmt(last.ships)+' /q';
+  $('st-back').textContent = fmt(last.backlog);
+  $('corner').classList.toggle('spot', sc.id === 'payoff');
+  const svg = $('viz');
+  while(svg.firstChild) svg.removeChild(svg.firstChild);
+  sc.draw(svg);
+}
+
+/* corner counter interpolates between ticks so it visibly runs */
+let lastTickAt = Date.now();
+setInterval(()=>{
+  const last = gSim.hist[gSim.hist.length-1];
+  const rate = Math.max(last.orders - last.ships, 0);
+  const frac = paused ? 0 : Math.min((Date.now()-lastTickAt)/TICK_MS, 1);
+  $('cornerV').textContent = fmt(last.backlog + rate*frac);
+}, 100);
+
+/* master clock — synchronous renders, no rAF (OBS window capture) */
+setInterval(()=>{
+  if(paused) return;
+  stepSim(gSim);
+  if(scenes[scene].id === 'drag') stepSim(dragSim);
+  if(scenes[scene].id === 'fab')  stepSim(fabSim);
+  lastTickAt = Date.now();
+  render();
+}, TICK_MS);
+
+/* ============================================================
+   EVENTS
+   ============================================================ */
+function goto(n){
+  scene = Math.max(0, Math.min(scenes.length-1, n));
+  reveal = 0; gen++; hookReveal = false;
+  if(scenes[scene].id === 'hook')
+    later(2600, ()=>{ hookReveal = true; render(); });   // overlay AFTER the queue fills
+  render();
+}
+function advance(){
+  const sc = scenes[scene];
+  if(reveal < sc.maxReveal){ reveal++; render(); return; }
+  goto(scene+1);
+}
+function resetScene(){
+  const id = scenes[scene].id;
+  if(id === 'drag'){ dragSim = seed(mkSim(100), 14); $('demandRange').value = 100; setFill($('demandRange')); }
+  if(id === 'fab'){ fabSim = seed(mkSim(200, 400), 14); $('armBtn').classList.remove('armed'); }
+  if(id === 'orderrev') manual = {booked:0, shipped:0, log:[]};
+  reveal = 0; render();
+}
+function setFill(r){ r.style.setProperty('--fill', (100*(r.value-r.min)/(r.max-r.min))+'%'); }
+
+$('demandRange').addEventListener('input', e => {
+  const v = +e.target.value; setFill(e.target);
+  $('demandVal').textContent = v+' /q';
+  if(scenes[scene].id === 'drag') dragSim.demand = v;
+  if(scenes[scene].id === 'fab')  fabSim.demand = v;
+  render();
+});
+$('fabRange').addEventListener('input', e => {
+  setFill(e.target);
+  $('fabVal').textContent = e.target.value+' q';
+});
+function armFab(){
+  if(scenes[scene].id !== 'fab' || fabSim.fabIn !== null) return;
+  fabSim.fabIn = +$('fabRange').value;
+  $('armBtn').classList.add('armed');
+  render();
+}
+function bookOrder(){ if(scenes[scene].id !== 'orderrev') return;
+  manual.booked++; manual.log.push(manual.shipped); render(); }
+function shipUnit(){ if(scenes[scene].id !== 'orderrev') return;
+  if(manual.shipped < manual.booked){ manual.shipped++; manual.log.push(manual.shipped); render(); } }
+
+$('armBtn').addEventListener('click', armFab);
+$('bookBtn').addEventListener('click', bookOrder);
+$('shipBtn').addEventListener('click', shipUnit);
+$('prev').addEventListener('click', () => goto(scene-1));
+$('next').addEventListener('click', advance);
+
+document.addEventListener('keydown', e => {
+  const a = document.activeElement;
+  if(a && (a.tagName === 'INPUT' || a.tagName === 'BUTTON')) a.blur();
+  if(e.key === 'ArrowRight'){ e.preventDefault(); advance(); }
+  if(e.key === 'ArrowLeft'){  e.preventDefault(); goto(scene-1); }
+  if(/^[1-8]$/.test(e.key))   goto(+e.key-1);
+  if(e.key === 'b' || e.key === 'B') bookOrder();
+  if(e.key === 's' || e.key === 'S') shipUnit();
+  if(e.key === 'a' || e.key === 'A') armFab();
+  if(e.key === 'd' || e.key === 'D'){ if(scenes[scene].controls.demand) $('demandRange').focus(); }
+  if(e.key === 'f' || e.key === 'F'){ if(scenes[scene].controls.fab) $('fabRange').focus(); }
+  if(e.key === 'r' || e.key === 'R') resetScene();
+  if(e.key === ' '){ e.preventDefault(); paused = !paused; lastTickAt = Date.now(); }
+});
+
+setFill($('demandRange')); setFill($('fabRange'));
+goto(0);
+
+/* ============================================================
+   SANITY — call sanity() in the console when writing/recording.
+   Never hand-type the on-air figures.
+   ============================================================ */
+function sanity(){
+  const rows = [[100],[150],[170],[200],[250],[300]];
+  const out = ['SANITY — capacity '+CAP+'/q fixed',
+    '| demand /q | demand × | revenue /q | revenue × | queueing /q | book-to-bill |',
+    '|---|---|---|---|---|---|',
+    ...rows.map(([d])=>{
+      const ships = Math.min(CAP, d);
+      return `| ${d} | ${(d/100).toFixed(1)}× | ${ships} | ${(ships/100).toFixed(2)}× | ${Math.max(d-ships,0)} | ${(d/ships).toFixed(2)} |`;
+    }),
+    '',
+    'Title case: demand 100→200 = 2.0× · revenue 100→170 = 1.70× · queue 30/q',
+    'Fab: +60 capacity (→230) after N quarters · drains 30/q at demand 200'
+  ].join('\n');
+  console.log(out);
+  return out;
+}
+window.sanity = sanity;
+</script>
+</body>
+</html>
