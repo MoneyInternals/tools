@@ -219,3 +219,6 @@ __marimo__/
 
 # Local-only orientation file — never push (public repo)
 CLAUDE.md
+
+# macOS
+.DS_Store

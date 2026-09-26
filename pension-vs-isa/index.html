@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pension vs ISA — the same £1,000 — Money Internals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0B0E13; --panel:#121821; --panel2:#171F2A; --line:#232A33; --line2:#2C3540;
+  --txt:#E6EAF0; --mut:#8B94A3; --mut2:#5C6675;
+  --bid:#2EBD85; --ask:#F6465D; --gold:#E8B33C; --blue:#4A9EDA;
+  --accent:#2EBD85;
+  --sans:'Inter',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+  --r:10px;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{height:100%}
+body{background:var(--bg); color:var(--txt); font-family:var(--sans); font-weight:500; display:flex; flex-direction:column; overflow:hidden}
+.tnum{font-variant-numeric:tabular-nums}
+.topbar{display:flex; align-items:center; gap:26px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel)}
+.brand .name{font-size:16px; letter-spacing:.3px}
+.brand .name b{color:var(--bid); font-weight:700}
+.ticker{font-family:var(--mono); font-size:12px; color:var(--mut); letter-spacing:2px}
+.ticker.year{color:var(--gold)}
+.stats{margin-left:auto; display:flex; gap:26px}
+.stat-h{display:flex; flex-direction:column; align-items:flex-end}
+.stat-h .k{font-size:10px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2)}
+.stat-h .v{font-family:var(--mono); font-size:17px; font-weight:700}
+#st-isa{color:var(--blue)} #st-pen{color:var(--bid)} #st-ratio{color:var(--gold)}
+.stage{flex:1; display:grid; grid-template-columns:1fr 360px; min-height:0; position:relative}
+.main{display:flex; flex-direction:column; padding:22px 26px 26px; min-width:0; min-height:0}
+.main h1{font-size:26px; font-weight:700; letter-spacing:-.3px}
+.main .sub{color:var(--mut); font-size:15px; margin-top:6px; line-height:1.45; max-width:70ch}
+.viz{flex:1; margin-top:14px; min-height:0; display:flex}
+.viz svg{width:100%; height:100%}
+.side{border-left:1px solid var(--line); background:var(--panel); padding:18px; display:flex; flex-direction:column; gap:12px; overflow-y:auto}
+.card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--r); padding:13px 16px}
+.card .k{font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:var(--mut2); margin-bottom:4px}
+.card .v{font-family:var(--mono); font-size:26px; font-weight:700; font-variant-numeric:tabular-nums}
+.card .v small{font-size:14px; color:var(--mut); font-weight:500}
+.card.hero{border-color:var(--bid)} .card.hero .v{color:var(--bid); font-size:31px}
+.card.bad{border-color:var(--ask)} .card.bad .v{color:var(--ask)}
+.card.gold{border-color:var(--gold)} .card.gold .v{color:var(--gold)}
+.card.blue{border-color:var(--blue)} .card.blue .v{color:var(--blue)}
+.callout{background:var(--panel2); border-left:3px solid var(--gold); border-radius:0 var(--r) var(--r) 0; padding:12px 15px; font-size:14.5px; line-height:1.5}
+.callout b{color:var(--gold)}
+.callout.warn{border-left-color:var(--ask)} .callout.warn b{color:var(--ask)}
+.callout.good{border-left-color:var(--bid)} .callout.good b{color:var(--bid)}
+.callout.blue{border-left-color:var(--blue)} .callout.blue b{color:var(--blue)}
+.controls{display:flex; align-items:center; gap:22px; flex-wrap:wrap; padding:12px 26px; border-top:1px solid var(--line); background:var(--panel)}
+.ctl{display:flex; align-items:center; gap:12px}
+.ctl.hidden{display:none}
+.ctl .lbl{font-size:11px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2); white-space:nowrap}
+.ctl .val{font-family:var(--mono); font-size:16px; font-weight:700; min-width:70px}
+.ctl .val.gold{color:var(--gold)} .ctl .val.blue{color:var(--blue)} .ctl .val.good{color:var(--bid)}
+input[type=range]{-webkit-appearance:none; appearance:none; width:220px; height:6px; border-radius:3px; background:linear-gradient(to right, var(--gold) var(--fill,0%), var(--line2) var(--fill,0%)); outline:none; cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:18px; height:18px; border-radius:50%; background:var(--txt); border:3px solid var(--gold); cursor:grab}
+input[type=range]:focus-visible{outline:2px solid var(--txt); outline-offset:3px}
+#matchRange{background:linear-gradient(to right, var(--blue) var(--fill,0%), var(--line2) var(--fill,0%))}
+#matchRange::-webkit-slider-thumb{border-color:var(--blue)}
+.seg{display:flex; border:1px solid var(--line2); border-radius:6px; overflow:hidden}
+.seg button{font-family:var(--mono); font-size:13px; padding:8px 14px; border:0; background:var(--panel2); color:var(--mut); cursor:pointer}
+.seg button.on{background:var(--gold); color:#0B0E13; font-weight:700}
+.btn{font-family:var(--mono); font-size:13px; padding:9px 16px; border-radius:6px; border:1px solid var(--line2); background:var(--panel2); color:var(--mut); cursor:pointer; transition:.15s; letter-spacing:.5px}
+.btn:hover{border-color:var(--accent); color:var(--accent)}
+.btn.armed{background:var(--bid); border-color:var(--bid); color:#0B0E13; font-weight:700}
+.stepper{display:grid; grid-template-columns:auto 1fr auto auto; align-items:center; gap:18px; padding:11px 20px; border-top:1px solid var(--line); background:var(--panel)}
+.scn-count{font-family:var(--mono); font-size:14px; color:var(--mut); white-space:nowrap}
+.scn-caption{font-size:15px} .scn-caption b{color:var(--accent)}
+.disclaimer{font-size:11px; color:var(--mut2); white-space:nowrap}
+.scn-nav{display:flex; gap:8px}
+.scn-nav button{font-family:var(--mono); font-size:13px; padding:7px 14px; border-radius:6px; border:1px solid var(--line2); background:var(--panel2); color:var(--mut); cursor:pointer}
+.scn-nav button:hover{border-color:var(--accent); color:var(--accent)}
+.build{position:absolute; right:378px; bottom:8px; font-family:var(--mono); font-size:10px; color:var(--mut2)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="name">MONEY <b>INTERNALS</b></span></div>
+  <span class="ticker">THE SAME £1,000 · TWO JARS</span>
+  <span class="ticker year" id="st-year">TAX YEAR —</span>
+  <div class="stats">
+    <div class="stat-h"><span class="k">ISA jar</span><span class="v tnum" id="st-isa">—</span></div>
+    <div class="stat-h"><span class="k">Pension jar</span><span class="v tnum" id="st-pen">—</span></div>
+    <div class="stat-h"><span class="k">Pension ÷ ISA</span><span class="v tnum" id="st-ratio">—</span></div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="main">
+    <h1 id="title"></h1>
+    <div class="sub" id="sub"></div>
+    <div class="viz"><svg id="viz" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet"></svg></div>
+  </div>
+  <div class="side" id="side"></div>
+  <div class="build" id="build"></div>
+</div>
+
+<div class="controls">
+  <div class="ctl" id="ctl-in">
+    <span class="lbl">Your rate now</span>
+    <div class="seg" id="inSeg">
+      <button data-r="20">20%</button><button data-r="40" class="on">40%</button><button data-r="45">45%</button>
+    </div>
+  </div>
+  <div class="ctl" id="ctl-out">
+    <span class="lbl">Rate when it comes out</span>
+    <input type="range" id="outRange" min="0" max="45" step="1" value="20">
+    <span class="val gold tnum" id="outVal">20%</span>
+    <button class="btn" id="drawBtn">TAKE IT OUT [W]</button>
+  </div>
+  <div class="ctl" id="ctl-match">
+    <span class="lbl">Employer match</span>
+    <input type="range" id="matchRange" min="0" max="100" step="5" value="0">
+    <span class="val blue tnum" id="matchVal">0%</span>
+  </div>
+</div>
+
+<div class="stepper">
+  <span class="scn-count" id="scnCount"></span>
+  <span class="scn-caption" id="scnCaption"></span>
+  <span class="disclaimer">Illustrative · income tax only, England/Wales/NI · educational — not financial advice</span>
+  <div class="scn-nav"><button id="prev">← Prev</button><button id="next">Next →</button></div>
+</div>
+
+<script>
+/* ============================================================
+   BUILD pvi-b04 — "Pension vs ISA: the same £1,000"
+   Key map (reconcile script cues against this before recording):
+     → / Next   advance (in-scene reveals on scene 5, then next scene)
+     ←          previous scene       1–5   jump to scene
+     B / H / A  rate now = 20 / 40 / 45%   (scenes 2–4)
+     O          focus rate-out slider   W   take it out / put it back (scene 3–4)
+     M          focus match slider      Space  pause the hook loop
+     R          reset current scene
+   Arithmetic (sanity() in console):
+     gross 1,000 · ISA lands 1000×(1−rateIn) · pension lands 1000×(1+match)
+     out: 25% tax-free, 75% × (1−rateOut)
+     40% in / 20% out → ISA 600 · pension 850  ← the title
+     tie: rateOut where pension = ISA  = 1 − (ISA/1000 − .25)/.75
+   ============================================================ */
+const TAX_YEAR = '2026/27';
+const BUILD    = 'pvi-b04';
+const GROSS    = 1000;
+const TFC      = 0.25;          // tax-free share on the way out (within the lump-sum allowance)
+const RATES    = {20:0.20, 40:0.40, 45:0.45};
+const NMPA     = '57 (from April 2028)';   // normal minimum pension age — VERIFY
+
+const $ = id => document.getElementById(id);
+const C = {panel:'#171F2A', line:'#232A33', line2:'#2C3540', txt:'#E6EAF0', mut:'#8B94A3', mut2:'#5C6675',
+           bid:'#2EBD85', ask:'#F6465D', gold:'#E8B33C', blue:'#4A9EDA'};
+const NS='http://www.w3.org/2000/svg';
+const svgEl=(t,a)=>{const e=document.createElementNS(NS,t); for(const k in a) e.setAttribute(k,a[k]); return e;};
+function txt(svg,x,y,s,size=14,fill=C.txt,anchor='start',weight=500,mono=false){
+  const t=svgEl('text',{x,y,'font-size':size,fill,'text-anchor':anchor,'font-weight':weight,
+    'font-family':mono?"'JetBrains Mono',monospace":"'Inter',sans-serif"}); t.textContent=s; svg.appendChild(t); return t;}
+const gbp = n => '£'+Math.round(n).toLocaleString('en-GB');
+
+/* ---------- state ---------- */
+let rateIn=40, rateOut=20, match=0, drawn=false;
+let scene=0, reveal=0, gen=0, hookT=0, paused=false, hookOverlay=false;
+function later(ms,fn){const g=gen; setTimeout(()=>{if(g===gen) fn();},ms);}
+
+/* ---------- engine ---------- */
+function m(){
+  const tin=RATES[rateIn], tout=rateOut/100;
+  const isa = GROSS*(1-tin);
+  const penIn = GROSS*(1+match/100);
+  const penFree = penIn*TFC, penTaxed = penIn*(1-TFC), penTax = penTaxed*tout;
+  const penOut = penFree + penTaxed - penTax;
+  const tie = 1 - ((isa/penIn) - TFC)/(1-TFC);      // rateOut where penOut === isa
+  return {tin,tout,isa,penIn,penFree,penTaxed,penTax,penOut,tie, taxIn:GROSS*tin};
+}
+
+/* ---------- drawing ---------- */
+function jar(svg,x,y,w,h,fillH,color,label,value,sub){
+  svg.appendChild(svgEl('rect',{x,y,width:w,height:h,rx:14,fill:C.panel,stroke:C.line2,'stroke-width':1.5}));
+  const fh=Math.max(0,Math.min(h-6,fillH));
+  svg.appendChild(svgEl('rect',{x:x+3,y:y+h-3-fh,width:w-6,height:fh,rx:11,fill:color,opacity:.85}));
+  txt(svg,x+w/2,y-14,label,13,C.mut2,'middle',700,true);
+  txt(svg,x+w/2,y+h+40,value,30,color,'middle',700,true);
+  if(sub) txt(svg,x+w/2,y+h+62,sub,12,C.mut,'middle');
+}
+const SCALE = 190/1000;   // px per £ at h=200 → £1,000 = 190px
+/* With a 100% employer match the pension jar holds £2,000 — 380px at SCALE,
+   which overflowed the 200px box and drew straight over the next jar. Fall
+   back to whatever scale fits the biggest jar on screen. At match=0 this
+   returns SCALE exactly, so nothing moves unless it has to. */
+function fitScale(M,h=200){ return Math.min(SCALE,(h-6)/Math.max(M.isa,M.penIn)); }
+
+function drawHook(svg){
+  // two jars filling in a loop, ISA at higher rate — mid-action from frame one
+  const M=m();
+  const ph = (hookT%80)/80;              // 0→1 every 80 ticks = 6.4s a loop
+  const ease = ph<.5 ? 2*ph*ph : 1-Math.pow(-2*ph+2,2)/2;
+  txt(svg,500,40,'£1,000 OF GROSS PAY, ROUTED TWO WAYS',13,C.mut2,'middle',700,true);
+  // falling pound
+  svg.appendChild(svgEl('circle',{cx:500,cy:70+ease*90,r:16,fill:C.gold,opacity:1-ease*.6}));
+  txt(svg,500,76+ease*90,'£',16,'#0B0E13','middle',700,true);
+  svg.appendChild(svgEl('path',{d:'M500 170 L340 230',stroke:C.blue,'stroke-width':2,fill:'none',opacity:.5}));
+  svg.appendChild(svgEl('path',{d:'M500 170 L660 230',stroke:C.bid,'stroke-width':2,fill:'none',opacity:.5}));
+  txt(svg,405,205,'− '+rateIn+'% tax',12,C.ask,'middle',700,true);
+  txt(svg,595,205,'− 0% tax',12,C.bid,'middle',700,true);
+  const S=fitScale(M);
+  jar(svg,240,250,200,200,M.isa*S*ease,C.blue,'ISA JAR',gbp(M.isa*ease));
+  jar(svg,560,250,200,200,M.penIn*S*ease,C.bid,'PENSION JAR',gbp(M.penIn*ease));
+  if(hookOverlay){
+    svg.appendChild(svgEl('rect',{x:244,y:500,width:512,height:44,rx:8,fill:C.panel,stroke:C.gold}));
+    txt(svg,500,529,'£600 or £1,000 — and neither is what you keep.',17,C.gold,'middle',700,true);
+  }
+}
+function drawIn(svg){
+  const M=m();
+  txt(svg,500,40,'THE WAY IN — WHAT LANDS IN THE JAR',13,C.mut2,'middle',700,true);
+  const S=fitScale(M);
+  jar(svg,240,120,200,200,M.isa*S,C.blue,'ISA JAR',gbp(M.isa),'after '+rateIn+'% income tax');
+  jar(svg,560,120,200,200,M.penIn*S,C.bid,'PENSION JAR',gbp(M.penIn),'no income tax on the way in');
+  // the missing slice
+  svg.appendChild(svgEl('rect',{x:243,y:120+200-3-M.isa*S-M.taxIn*S,width:194,height:M.taxIn*S,rx:6,fill:C.ask,opacity:.25}));
+  txt(svg,340,120+200-3-M.isa*S-M.taxIn*S/2+5,'tax '+gbp(M.taxIn),13,C.ask,'middle',700,true);
+  txt(svg,500,470,'Relief is not a bonus. It is the tax that was never taken.',15,C.txt,'middle',700);
+}
+function drawOut(svg){
+  const M=m();
+  txt(svg,500,40,drawn?'THE WAY OUT — 25% TAX-FREE, THE REST AT YOUR RATE THEN':'THE WAY OUT — PRESS W',13,C.mut2,'middle',700,true);
+  const S=fitScale(M);
+  jar(svg,200,120,180,200,M.isa*S,C.blue,'ISA JAR',gbp(M.isa),'no tax on the way out');
+  if(!drawn){
+    jar(svg,560,120,180,200,M.penIn*S,C.bid,'PENSION JAR',gbp(M.penIn),'untouched');
+  } else {
+    // split jar: free part, taxed part, tax gone
+    const x=560,y=120,w=180,h=200;
+    svg.appendChild(svgEl('rect',{x,y,width:w,height:h,rx:14,fill:C.panel,stroke:C.line2,'stroke-width':1.5}));
+    const fH=M.penFree*S, kH=(M.penTaxed-M.penTax)*S, tH=M.penTax*S;
+    let top=y+h-3;
+    svg.appendChild(svgEl('rect',{x:x+3,y:top-fH,width:w-6,height:fH,fill:C.bid,opacity:.95})); top-=fH;
+    svg.appendChild(svgEl('rect',{x:x+3,y:top-kH,width:w-6,height:kH,fill:C.bid,opacity:.6})); top-=kH;
+    svg.appendChild(svgEl('rect',{x:x+3,y:top-tH,width:w-6,height:tH,fill:C.ask,opacity:.3}));
+    txt(svg,x+w/2,y-14,'PENSION JAR',13,C.mut2,'middle',700,true);
+    txt(svg,x+w/2,y+h+40,gbp(M.penOut),30,C.bid,'middle',700,true);
+    txt(svg,x+w/2,y+h+62,'25% free · 75% taxed at '+rateOut+'%',12,C.mut,'middle');
+    txt(svg,x+w+14,y+h-3-fH/2+4,'tax-free '+gbp(M.penFree),12,C.bid,'start',700,true);
+    txt(svg,x+w+14,y+h-3-fH-kH/2+4,'kept '+gbp(M.penTaxed-M.penTax),12,C.bid,'start',700,true);
+    if(tH>8) txt(svg,x+w+14,y+h-3-fH-kH-tH/2+4,'tax '+gbp(M.penTax),12,C.ask,'start',700,true);
+    // ISA level line across both jars
+    const isaY=120+200-3-M.isa*S;
+    svg.appendChild(svgEl('line',{x1:200,y1:isaY,x2:760,y2:isaY,stroke:C.blue,'stroke-dasharray':'5 6',opacity:.7}));
+    /* label sits left of the line, not right — on the right it collided with
+       the stacked tax-free / kept / tax labels whenever the ISA level fell
+       near the top of the kept band */
+    txt(svg,192,isaY+4,'ISA level',11,C.blue,'end',700,true);
+    const tiePct=Math.round(M.tie*100);
+    txt(svg,500,470,tiePct>=0&&tiePct<=100
+      ? 'Pension = ISA when the rate out reaches '+tiePct+'%. Below that, the pension jar is bigger.'
+      : 'With this match, no rate out brings the pension jar below the ISA.',15,C.txt,'middle',700);
+  }
+}
+function drawMatch(svg){ drawOut(svg); txt(svg,500,505,'Employer match '+match+'% — money that only exists in one jar.',14,C.blue,'middle',700); }
+function drawPayoff(svg){
+  const M=m();
+  txt(svg,500,70,gbp(M.isa)+'  vs  '+gbp(M.penOut),56,C.gold,'middle',700,true);
+  txt(svg,500,104,'THE SAME £1,000 · '+rateIn+'% NOW · '+rateOut+'% THEN · '+match+'% MATCH',13,C.mut2,'middle',700,true);
+  const L=[
+    ['The way in: relief is your rate now','the tax that was never taken — 20, 40 or 45p in the pound',C.bid],
+    ['The way out: 25% free, the rest at your rate then','the pension’s edge is the gap between those two rates',C.gold],
+    ['The match only exists in one jar','and it is taxed on the way out like everything else',C.blue],
+    ['One number is bigger. The other is available now.','pension access from '+NMPA+' · ISA any time — this page can’t weigh that for you',C.ask]];
+  L.forEach((l,i)=>{ if(reveal<=i) return; const y=150+i*86;
+    svg.appendChild(svgEl('rect',{x:120,y,width:760,height:66,rx:10,fill:C.panel,stroke:l[2],'stroke-width':1.5}));
+    txt(svg,150,y+29,(i+1)+'.  '+l[0],17,l[2],'start',700); txt(svg,150,y+52,l[1],14,C.mut,'start');});
+  if(reveal>=5) txt(svg,500,530,'CHALLENGE — find the settings where the ISA jar is bigger. Comments.',15,C.txt,'middle',700,true);
+}
+
+/* ---------- scenes ---------- */
+const card=(k,v,cls='')=>`<div class="card ${cls}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+const scenes=[
+ {id:'hook', caption:'Same £1,000 of pay — <b>two jars, two very different numbers</b>', title:'The same £1,000. Two jars.',
+  sub:'One pound of gross pay, routed into an ISA or a pension. Watch how much of it actually lands.', controls:{}, maxReveal:0, draw:drawHook,
+  side(){const M=m(); return card('Gross pay',gbp(GROSS),'gold')+card('Lands in ISA',gbp(M.isa),'blue')+card('Lands in pension',gbp(M.penIn),'hero')
+    +`<div class="callout"><b>Same pound.</b> The difference is only when the tax is taken — and at what rate.</div>`;}},
+ {id:'in', caption:'<b>B / H / A</b> switch your rate now — watch the ISA jar, the pension jar never moves', title:'The way in',
+  sub:'An ISA is filled from pay that has already been taxed. A pension is filled before the tax is taken. That is all "relief" means.', controls:{in:true}, maxReveal:0, draw:drawIn,
+  side(){const M=m(); return card('Your rate now',rateIn+'%','gold')+card('Tax off the ISA pound',gbp(M.taxIn),'bad')+card('Tax off the pension pound','£0','hero')
+    +`<div class="callout good"><b>Relief = your rate.</b> At 40%, £1,000 into an ISA is £600. Into a pension it is still £1,000. Nothing has been added — nothing was taken.</div>`;}},
+ {id:'out', caption:'Prediction first — <b>then W</b>. Drag the rate out with <b>O</b>', title:'The way out',
+  sub:'The pension is taxed when it comes out: a quarter tax-free, the rest as income at whatever rate applies then. The ISA is not.', controls:{in:true,out:true}, maxReveal:0, draw:drawOut,
+  side(){const M=m(); const t=Math.round(M.tie*100); return card('ISA, out',gbp(M.isa),'blue')+card('Pension, out',drawn?gbp(M.penOut):'—','hero')+card('Rate out that ties them',(t>=0&&t<=100)?t+'%':'none','gold')
+    +(drawn?`<div class="callout"><b>Rate in vs rate out.</b> That gap is the whole pension advantage. Growth multiplies both jars the same — it cancels.</div>`
+            :`<div class="callout blue"><b>Before you press W:</b> the ISA landed at ${gbp(M.isa)}. The pension landed at ${gbp(M.penIn)} but gets taxed on the way out. Does the ISA catch up?</div>`);}},
+ {id:'match', caption:'<b>M</b> — the employer match. It lands in one jar only', title:'The match',
+  sub:'Employer contributions go into the pension and nowhere else. They are taxed on the way out like the rest of the jar.', controls:{in:true,out:true,match:true}, maxReveal:0, draw:drawMatch,
+  side(){const M=m(); return card('Employer match',match+'%','blue')+card('Pension jar, in',gbp(M.penIn),'hero')+card('Pension jar, out',gbp(M.penOut),'gold')+card('ISA jar',gbp(M.isa),'blue')
+    +`<div class="callout blue"><b>Not a comparison of products.</b> It is one pound, and where the tax and the match land. The answer moves with three settings — none of them are on this page.</div>`;}},
+ {id:'payoff', caption:'The payoff — <b>→</b> reveals each line', title:'Two numbers. One is bigger, one is available.',
+  sub:'Rate now, rate then, match. Everything on this page is those three settings.', controls:{}, maxReveal:5, draw:drawPayoff,
+  side(){const M=m(); return card('ISA jar',gbp(M.isa),'blue')+card('Pension jar, out',gbp(M.penOut),'hero')+card('Pension ÷ ISA',(M.penOut/M.isa).toFixed(2)+'×','gold')
+    +`<div class="callout warn"><b>Not advice.</b> This is how the two jars work — not which one anyone should use. Access rules, allowances and your rate then are all outside this page.</div>`;}}
+];
+
+/* ---------- render ---------- */
+function render(){
+  const sc=scenes[scene], M=m();
+  $('title').textContent=sc.title; $('sub').textContent=sc.sub;
+  $('scnCount').textContent='SCENE '+(scene+1)+' / '+scenes.length; $('scnCaption').innerHTML=sc.caption;
+  $('side').innerHTML=sc.side(); $('st-year').textContent='TAX YEAR '+TAX_YEAR; $('build').textContent=BUILD;
+  $('ctl-in').classList.toggle('hidden',!sc.controls.in); $('ctl-out').classList.toggle('hidden',!sc.controls.out); $('ctl-match').classList.toggle('hidden',!sc.controls.match);
+  $('st-isa').textContent=gbp(M.isa); $('st-pen').textContent=gbp(drawn||sc.id==='payoff'?M.penOut:M.penIn);
+  $('st-ratio').textContent=((drawn||sc.id==='payoff'?M.penOut:M.penIn)/M.isa).toFixed(2)+'×';
+  $('drawBtn').classList.toggle('armed',drawn); $('drawBtn').textContent=drawn?'PUT IT BACK [W]':'TAKE IT OUT [W]';
+  document.querySelectorAll('#inSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.r===rateIn));
+  const svg=$('viz'); while(svg.firstChild) svg.removeChild(svg.firstChild); sc.draw(svg);
+}
+setInterval(()=>{ if(paused||scenes[scene].id!=='hook') return; hookT++; render(); },80);
+
+/* ---------- events ---------- */
+function goto(n){ scene=Math.max(0,Math.min(scenes.length-1,n)); reveal=0; gen++; hookOverlay=false;
+  if(scenes[scene].id==='hook') later(5200,()=>{hookOverlay=true;});
+  if(scenes[scene].id==='payoff') drawn=true;
+  render(); }
+function advance(){ const sc=scenes[scene]; if(reveal<sc.maxReveal){reveal++; render(); return;} goto(scene+1); }
+function resetScene(){ const id=scenes[scene].id;
+  if(id==='out'||id==='match'){ drawn=false; rateOut=20; $('outRange').value=20; $('outVal').textContent='20%'; setFill($('outRange')); }
+  if(id==='match'){ match=0; $('matchRange').value=0; $('matchVal').textContent='0%'; setFill($('matchRange')); }
+  if(id==='in'){ rateIn=40; }
+  reveal=0; render(); }
+function setFill(r){ r.style.setProperty('--fill',(100*(r.value-r.min)/(r.max-r.min))+'%'); }
+
+/* ---------- keyboard slider sweeps ----------
+   O and M used to just .focus() the range input, which never worked: the
+   keydown handler blurs any focused input on every keypress, so the next
+   arrow key advanced the scene instead of moving the slider. Now the key
+   sweeps the slider smoothly to the next value the script asks for, which
+   also records better than a hand-drag — repeatable, same pace every take.
+   Mouse dragging still works exactly as before. */
+const OUT_STOPS=[20,40,45], MATCH_STOPS=[0,100,50];
+function nextStop(stops,cur){ const i=stops.indexOf(cur); return i<0?stops[0]:stops[(i+1)%stops.length]; }
+function sweep(which,to,ms=1200){
+  const el = which==='out' ? $('outRange') : $('matchRange');
+  const from = which==='out' ? rateOut : match;
+  if(from===to) return;
+  const g=gen, t0=performance.now();
+  (function step(now){
+    if(g!==gen) return;                       // scene changed mid-sweep: abandon
+    const p=Math.min(1,(now-t0)/ms);
+    const e=p<.5 ? 2*p*p : 1-Math.pow(-2*p+2,2)/2;
+    const v=Math.round(from+(to-from)*e);
+    if(which==='out'){ rateOut=v; $('outVal').textContent=v+'%'; }
+    else             { match=v;   $('matchVal').textContent=v+'%'; }
+    el.value=v; setFill(el); render();
+    if(p<1) requestAnimationFrame(step);
+  })(t0);
+}
+function setIn(r){ if(!scenes[scene].controls.in) return; rateIn=r; render(); }
+function toggleDraw(){ if(!scenes[scene].controls.out) return; drawn=!drawn; render(); }
+
+$('outRange').addEventListener('input',e=>{ rateOut=+e.target.value; setFill(e.target); $('outVal').textContent=rateOut+'%'; render(); });
+$('matchRange').addEventListener('input',e=>{ match=+e.target.value; setFill(e.target); $('matchVal').textContent=match+'%'; render(); });
+document.querySelectorAll('#inSeg button').forEach(b=>b.addEventListener('click',()=>setIn(+b.dataset.r)));
+$('drawBtn').addEventListener('click',toggleDraw);
+$('prev').addEventListener('click',()=>goto(scene-1)); $('next').addEventListener('click',advance);
+document.addEventListener('keydown',e=>{
+  const a=document.activeElement; if(a&&(a.tagName==='INPUT'||a.tagName==='BUTTON')) a.blur();
+  const k=e.key.toLowerCase();
+  if(e.key==='ArrowRight'){e.preventDefault(); advance();} if(e.key==='ArrowLeft'){e.preventDefault(); goto(scene-1);}
+  if(/^[1-5]$/.test(e.key)) goto(+e.key-1);
+  if(k==='b') setIn(20); if(k==='h') setIn(40); if(k==='a') setIn(45);
+  if(k==='w') toggleDraw(); if(k==='r') resetScene();
+  if(k==='o'&&scenes[scene].controls.out)   sweep('out',  nextStop(OUT_STOPS,  rateOut));
+  if(k==='m'&&scenes[scene].controls.match) sweep('match',nextStop(MATCH_STOPS,match));
+  if(e.key===' '){e.preventDefault(); paused=!paused;}
+});
+setFill($('outRange')); setFill($('matchRange')); goto(0);
+
+/* ---------- sanity — never hand-type on-air figures ---------- */
+function sanity(){
+  const rows=[]; for(const ri of [20,40,45]) for(const ro of [0,20,40,45]){
+    const isa=GROSS*(1-RATES[ri]), pen=GROSS*(TFC+(1-TFC)*(1-ro/100));
+    rows.push(`| ${ri}% | ${ro}% | ${gbp(isa)} | ${gbp(pen)} | ${(pen/isa).toFixed(2)}× | ${Math.round((1-((isa/GROSS)-TFC)/(1-TFC))*100)}% |`);}
+  const out=['SANITY — gross '+gbp(GROSS)+', no match','| in | out | ISA | pension out | ratio | tie rate-out |','|---|---|---|---|---|---|',...rows,
+    '','Match, 40% in, 20% out (ISA 600):',
+    ...[50,100].map(mt=>{ const pin=GROSS*(1+mt/100), tie=1-((600/pin)-TFC)/(1-TFC);
+      return `  match ${mt}%: pension in ${gbp(pin)} → out ${gbp(pin*(TFC+(1-TFC)*.8))} · tie rate-out ${Math.round(tie*100)}%`; })
+    ].join('\n');
+  /* 2026-09-23: match rows extended so the Beat 3 figures (1,275 · 93%) come
+     from here, not hand-typed. Console-only — nothing on screen changes, so
+     the visible build stamp stays pvi-b04 to match any take already recorded. */
+  console.log(out); return out; }
+window.sanity=sanity;
+</script>
+</body>
+</html>
