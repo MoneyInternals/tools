@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your first mortgage payment — Money Internals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0B0E13; --panel:#121821; --panel2:#171F2A; --line:#232A33; --line2:#2C3540;
+  --txt:#E6EAF0; --mut:#8B94A3; --mut2:#5C6675;
+  --bid:#2EBD85; --ask:#F6465D; --gold:#E8B33C; --blue:#4A9EDA;
+  --accent:#2EBD85;
+  --sans:'Inter',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+  --r:10px;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{height:100%}
+body{background:var(--bg); color:var(--txt); font-family:var(--sans); font-weight:500; display:flex; flex-direction:column; overflow:hidden}
+.tnum{font-variant-numeric:tabular-nums}
+.topbar{display:flex; align-items:center; gap:26px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel)}
+.brand .name{font-size:16px; letter-spacing:.3px}
+.brand .name b{color:var(--bid); font-weight:700}
+.ticker{font-family:var(--mono); font-size:12px; color:var(--mut); letter-spacing:2px}
+.stats{margin-left:auto; display:flex; gap:26px}
+.stat-h{display:flex; flex-direction:column; align-items:flex-end}
+.stat-h .k{font-size:10px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2)}
+.stat-h .v{font-family:var(--mono); font-size:17px; font-weight:700}
+#st-pay{color:var(--txt)} #st-int{color:var(--ask)} #st-cap{color:var(--bid)} #st-bal{color:var(--gold)}
+.stage{flex:1; display:grid; grid-template-columns:1fr 360px; min-height:0; position:relative}
+.main{display:flex; flex-direction:column; padding:22px 26px 26px; min-width:0; min-height:0}
+.main h1{font-size:26px; font-weight:700; letter-spacing:-.3px}
+.main .sub{color:var(--mut); font-size:15px; margin-top:6px; line-height:1.45; max-width:70ch}
+.viz{flex:1; margin-top:14px; min-height:0; display:flex}
+.viz svg{width:100%; height:100%}
+.side{border-left:1px solid var(--line); background:var(--panel); padding:18px; display:flex; flex-direction:column; gap:12px; overflow-y:auto}
+.card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--r); padding:13px 16px}
+.card .k{font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:var(--mut2); margin-bottom:4px}
+.card .v{font-family:var(--mono); font-size:26px; font-weight:700; font-variant-numeric:tabular-nums}
+.card .v small{font-size:14px; color:var(--mut); font-weight:500}
+.card.hero{border-color:var(--bid)} .card.hero .v{color:var(--bid); font-size:31px}
+.card.bad{border-color:var(--ask)} .card.bad .v{color:var(--ask)}
+.card.gold{border-color:var(--gold)} .card.gold .v{color:var(--gold)}
+.card.blue{border-color:var(--blue)} .card.blue .v{color:var(--blue)}
+.callout{background:var(--panel2); border-left:3px solid var(--gold); border-radius:0 var(--r) var(--r) 0; padding:12px 15px; font-size:14.5px; line-height:1.5}
+.callout b{color:var(--gold)}
+.callout.warn{border-left-color:var(--ask)} .callout.warn b{color:var(--ask)}
+.callout.good{border-left-color:var(--bid)} .callout.good b{color:var(--bid)}
+.callout.blue{border-left-color:var(--blue)} .callout.blue b{color:var(--blue)}
+.controls{display:flex; align-items:center; gap:22px; flex-wrap:wrap; padding:12px 26px; border-top:1px solid var(--line); background:var(--panel)}
+.ctl{display:flex; align-items:center; gap:12px}
+.ctl.hidden{display:none}
+.ctl .lbl{font-size:11px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2); white-space:nowrap}
+.ctl .val{font-family:var(--mono); font-size:16px; font-weight:700; min-width:70px}
+.ctl .val.gold{color:var(--gold)} .ctl .val.blue{color:var(--blue)} .ctl .val.good{color:var(--bid)} .ctl .val.bad{color:var(--ask)}
+input[type=range]{-webkit-appearance:none; appearance:none; width:200px; height:6px; border-radius:3px; background:linear-gradient(to right, var(--gold) var(--fill,0%), var(--line2) var(--fill,0%)); outline:none; cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:18px; height:18px; border-radius:50%; background:var(--txt); border:3px solid var(--gold); cursor:grab}
+input[type=range]:focus-visible{outline:2px solid var(--txt); outline-offset:3px}
+#extraRange{background:linear-gradient(to right, var(--bid) var(--fill,0%), var(--line2) var(--fill,0%))} #extraRange::-webkit-slider-thumb{border-color:var(--bid)}
+#rateRange{background:linear-gradient(to right, var(--ask) var(--fill,0%), var(--line2) var(--fill,0%))} #rateRange::-webkit-slider-thumb{border-color:var(--ask)}
+.btn{font-family:var(--mono); font-size:13px; padding:9px 16px; border-radius:6px; border:1px solid var(--line2); background:var(--panel2); color:var(--mut); cursor:pointer; transition:.15s; letter-spacing:.5px}
+.btn:hover{border-color:var(--accent); color:var(--accent)}
+.btn.armed{background:var(--ask); border-color:var(--ask); color:#0B0E13; font-weight:700}
+.stepper{display:grid; grid-template-columns:auto 1fr auto auto; align-items:center; gap:18px; padding:11px 20px; border-top:1px solid var(--line); background:var(--panel)}
+.scn-count{font-family:var(--mono); font-size:14px; color:var(--mut); white-space:nowrap}
+.scn-caption{font-size:15px} .scn-caption b{color:var(--accent)}
+.disclaimer{font-size:11px; color:var(--mut2); white-space:nowrap}
+.scn-nav{display:flex; gap:8px}
+.scn-nav button{font-family:var(--mono); font-size:13px; padding:7px 14px; border-radius:6px; border:1px solid var(--line2); background:var(--panel2); color:var(--mut); cursor:pointer}
+.scn-nav button:hover{border-color:var(--accent); color:var(--accent)}
+.build{position:absolute; right:378px; bottom:8px; font-family:var(--mono); font-size:10px; color:var(--mut2)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="name">MONEY <b>INTERNALS</b></span></div>
+  <span class="ticker">REPAYMENT MORTGAGE · MONTH BY MONTH</span>
+  <div class="stats">
+    <div class="stat-h"><span class="k">Payment</span><span class="v tnum" id="st-pay">—</span></div>
+    <div class="stat-h"><span class="k">Interest this month</span><span class="v tnum" id="st-int">—</span></div>
+    <div class="stat-h"><span class="k">Buys house</span><span class="v tnum" id="st-cap">—</span></div>
+    <div class="stat-h"><span class="k">Balance</span><span class="v tnum" id="st-bal">—</span></div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="main">
+    <h1 id="title"></h1>
+    <div class="sub" id="sub"></div>
+    <div class="viz"><svg id="viz" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet"></svg></div>
+  </div>
+  <div class="side" id="side"></div>
+  <div class="build" id="build"></div>
+</div>
+
+<div class="controls">
+  <div class="ctl" id="ctl-step">
+    <button class="btn" id="mBtn">NEXT MONTH [N]</button>
+    <button class="btn" id="yBtn">NEXT YEAR [Y]</button>
+  </div>
+  <div class="ctl" id="ctl-rate">
+    <span class="lbl">Rate</span>
+    <input type="range" id="rateRange" min="1" max="8" step="0.25" value="5">
+    <span class="val bad tnum" id="rateVal">5.00%</span>
+  </div>
+  <div class="ctl" id="ctl-extra">
+    <span class="lbl">Overpay / month</span>
+    <input type="range" id="extraRange" min="0" max="500" step="25" value="0">
+    <span class="val good tnum" id="extraVal">£0</span>
+  </div>
+  <div class="ctl" id="ctl-reset">
+    <span class="lbl">2-year fix ends</span>
+    <button class="btn" id="resetBtn">RATE RESETS 3% → 5% [X]</button>
+  </div>
+</div>
+
+<div class="stepper">
+  <span class="scn-count" id="scnCount"></span>
+  <span class="scn-caption" id="scnCaption"></span>
+  <span class="disclaimer">Illustrative repayment mortgage · £250,000 · 25 years · fees, ERCs and product terms excluded · educational — not advice</span>
+  <div class="scn-nav"><button id="prev">← Prev</button><button id="next">Next →</button></div>
+</div>
+
+<script>
+/* ============================================================
+   BUILD mtg-b03 — "Your first payment: £1,461. £420 buys the house."
+   b02: the hook sweeps month 1 → 300 once (~9s), then parks on month 1,
+        so the bar shows the split the VO is describing.
+   b03: T / E sweep the sliders (they only focused them, which never
+        worked) · the park lands BIG text "ONLY £420 BUYS THE HOUSE" ·
+        hook subtitle and side note say "fixed rate", not "the same every
+        month" (a payment only stays put while the rate is fixed).
+   Key map:
+     → / Next   advance (in-scene reveals on scene 6)   ←  back   1–6 jump
+     N          next month (scene 2)     Y   next year (scene 2)
+     T          sweep rate 5→3→7→5 (3)   E   sweep overpay £0→£100→£200→£0 (4)
+     X          fire the rate reset (5)  Space  pause hook sweep
+     R          reset scene (on the hook: replay the sweep)
+   Baseline (sanity()):
+     £250,000 · 25y · 5.00% → payment 1,461.48 · m1 interest 1,041.67 · capital 419.81
+     5 years: paid 87,689 · cleared 28,550 · capital > interest from month 135
+     +£100/m → 265 months (22.1y), interest saved 25,382
+     2y fix 3%: 1,185.53 → balance 236,153 → 5% for 23y: 1,441.49 (+255.97)
+   ============================================================ */
+const BUILD='mtg-b03';
+const LOAN=250000, TERM=300;
+const $=id=>document.getElementById(id);
+const C={panel:'#171F2A',line:'#232A33',line2:'#2C3540',txt:'#E6EAF0',mut:'#8B94A3',mut2:'#5C6675',bid:'#2EBD85',ask:'#F6465D',gold:'#E8B33C',blue:'#4A9EDA'};
+const NS='http://www.w3.org/2000/svg';
+const svgEl=(t,a)=>{const e=document.createElementNS(NS,t); for(const k in a) e.setAttribute(k,a[k]); return e;};
+function txt(svg,x,y,s,size=14,fill=C.txt,anchor='start',weight=500,mono=false){const t=svgEl('text',{x,y,'font-size':size,fill,'text-anchor':anchor,'font-weight':weight,'font-family':mono?"'JetBrains Mono',monospace":"'Inter',sans-serif"}); t.textContent=s; svg.appendChild(t); return t;}
+const gbp=n=>'£'+Math.round(n).toLocaleString('en-GB');
+const gbp2=n=>'£'+n.toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+/* ---------- engine ---------- */
+const pmt=(P,ar,n)=>{const r=ar/12; return r===0?P/n:P*r/(1-Math.pow(1+r,-n));};
+function schedule(P,ar,n,extra=0,resetAt=null,resetRate=null){
+  // returns array of months {k,i,c,bal,pay}; rate may step at resetAt (months) to resetRate, payment recalculated on remaining term
+  let bal=P, rate=ar, pay=pmt(P,ar,n)+extra, out=[];
+  for(let k=1;k<=n+120 && bal>0.005;k++){
+    if(resetAt!==null && k===resetAt+1){ rate=resetRate; pay=pmt(bal,rate,n-resetAt)+extra; }
+    const i=bal*rate/12; let c=pay-i; if(c>bal) c=bal;
+    bal-=c; out.push({k,i,c,bal,pay:i+c});
+  }
+  return out;
+}
+const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
+
+/* ---------- state ---------- */
+let rate=0.05, extra=0, month=1, reset=false;
+let scene=0, reveal=0, gen=0, hookT=0, paused=false, hookOverlay=false;
+const later=(ms,fn)=>{const g=gen; setTimeout(()=>{if(g===gen) fn();},ms);};
+const base=()=>schedule(LOAN,0.05,TERM);
+const cur=()=>schedule(LOAN,rate,TERM,extra);
+const resetSched=()=>reset?schedule(LOAN,0.03,TERM,0,24,0.05):schedule(LOAN,0.03,TERM);
+
+/* ---------- drawing helpers ---------- */
+function frame(svg,x,y,w,h){svg.appendChild(svgEl('rect',{x,y,width:w,height:h,rx:8,fill:C.panel,stroke:C.line}));}
+function stackedBar(svg,x,y,w,h,i,c,pay,label){
+  const s=h/pay; const ih=i*s, ch=c*s;
+  svg.appendChild(svgEl('rect',{x,y:y+h-ch,width:w,height:ch,rx:4,fill:C.bid}));
+  svg.appendChild(svgEl('rect',{x,y:y+h-ch-ih,width:w,height:ih,rx:4,fill:C.ask,opacity:.85}));
+  txt(svg,x+w/2,y-10,label,12,C.mut2,'middle',700,true);
+  if(ih>18) txt(svg,x+w/2,y+h-ch-ih/2+5,gbp(i),13,'#0B0E13','middle',700,true);
+  if(ch>18) txt(svg,x+w/2,y+h-ch/2+5,gbp(c),13,'#0B0E13','middle',700,true);
+}
+function areaChart(svg,x,y,w,h,sched,opts={}){
+  frame(svg,x,y,w,h);
+  const n=sched.length, px=k=>x+14+(w-28)*((k-1)/Math.max(n-1,1)), maxPay=Math.max(...sched.map(m=>m.pay));
+  const py=v=>y+h-14-(h-40)*(v/maxPay);
+  // interest area (top) + capital area (bottom)
+  const capPts=sched.map(m=>px(m.k)+','+py(m.c)).join(' ');
+  const payPts=sched.map(m=>px(m.k)+','+py(m.pay)).join(' ');
+  svg.appendChild(svgEl('polygon',{points:px(1)+','+py(0)+' '+capPts+' '+px(n)+','+py(0),fill:C.bid,opacity:.35}));
+  svg.appendChild(svgEl('polygon',{points:capPts+' '+sched.slice().reverse().map(m=>px(m.k)+','+py(m.pay)).join(' '),fill:C.ask,opacity:.28}));
+  svg.appendChild(svgEl('polyline',{points:capPts,fill:'none',stroke:C.bid,'stroke-width':2.5}));
+  svg.appendChild(svgEl('polyline',{points:payPts,fill:'none',stroke:C.mut,'stroke-width':1.5,'stroke-dasharray':'4 5'}));
+  // year ticks
+  for(let yr=5;yr<=Math.floor(n/12);yr+=5){const k=yr*12; svg.appendChild(svgEl('line',{x1:px(k),y1:y+h-14,x2:px(k),y2:y+h-8,stroke:C.mut2})); txt(svg,px(k),y+h-1,'yr '+yr,10,C.mut2,'middle',500,true);}
+  txt(svg,x+14,y+22,opts.title||'',12,C.mut2,'start',700,true);
+  txt(svg,x+w-14,y+22,'▮ interest   ▮ buys the house',11,C.mut,'end',700,true);
+  // crossover
+  const cross=sched.find(m=>m.c>m.i);
+  if(cross&&opts.cross!==false){svg.appendChild(svgEl('line',{x1:px(cross.k),y1:y+30,x2:px(cross.k),y2:y+h-14,stroke:C.gold,'stroke-dasharray':'5 5'}));
+    txt(svg,px(cross.k)+6,y+44,'half the payment buys house: month '+cross.k+' (yr '+(cross.k/12).toFixed(1)+')',11.5,C.gold,'start',700,true);}
+  if(opts.marker){const m=sched[Math.min(opts.marker,n)-1]; if(m){svg.appendChild(svgEl('line',{x1:px(m.k),y1:y+30,x2:px(m.k),y2:y+h-14,stroke:C.txt,opacity:.6})); txt(svg,px(m.k)+6,y+h-24,'month '+m.k,11,C.txt,'start',700,true);}}
+  return {px,py};
+}
+
+/* ---------- scenes ---------- */
+function drawHook(svg){
+  const s=base(); const k=hookOverlay?1:Math.min(1+hookT,TERM); const m=s[k-1];
+  areaChart(svg,40,60,620,440,s,{title:'£250,000 · 25 YEARS · 5% — EVERY PAYMENT, SPLIT',marker:k,cross:false});
+  stackedBar(svg,760,120,120,300,m.i,m.c,m.pay,'MONTH '+k);
+  txt(svg,820,450,gbp2(m.pay)+' /m',15,C.txt,'middle',700,true);
+  txt(svg,820,472,'interest '+gbp(m.i)+' · house '+gbp(m.c),11,C.mut,'middle',500,true);
+  // b03: the shock line's words as BIG text (3–5 words), landing with the park on month 1
+  if(hookOverlay){svg.appendChild(svgEl('rect',{x:170,y:2,width:660,height:54,rx:10,fill:C.panel,stroke:C.gold,'stroke-width':2})); txt(svg,500,42,'ONLY £420 BUYS THE HOUSE',34,C.gold,'middle',700,false);}
+}
+function drawSplit(svg){
+  const s=base(); const m=s[month-1]; const paid=sum(s.slice(0,month),x=>x.pay), cleared=LOAN-m.bal;
+  txt(svg,500,40,'MONTH '+month+' OF '+TERM+' · YEAR '+Math.ceil(month/12),13,C.mut2,'middle',700,true);
+  stackedBar(svg,120,110,140,320,m.i,m.c,m.pay,'THIS PAYMENT');
+  txt(svg,190,462,gbp2(m.pay),15,C.txt,'middle',700,true);
+  // paid so far vs cleared
+  const bx=380,by=110,bw=520,bh=320; frame(svg,bx,by,bw,bh);
+  txt(svg,bx+16,by+26,'PAID SO FAR  vs  LOAN CLEARED',12,C.mut2,'start',700,true);
+  const maxV=Math.max(paid,LOAN,1); const sc=(bw-60)/maxV;
+  svg.appendChild(svgEl('rect',{x:bx+30,y:by+70,width:paid*sc,height:60,rx:6,fill:C.mut,opacity:.7}));
+  txt(svg,bx+30,by+62,'paid so far '+gbp(paid),13,C.txt,'start',700,true);
+  svg.appendChild(svgEl('rect',{x:bx+30,y:by+170,width:LOAN*sc,height:60,rx:6,fill:C.line2}));
+  svg.appendChild(svgEl('rect',{x:bx+30,y:by+170,width:cleared*sc,height:60,rx:6,fill:C.bid}));
+  txt(svg,bx+30,by+162,'of the £250,000, cleared: '+gbp(cleared),13,C.bid,'start',700,true);
+  txt(svg,bx+30,by+270,'interest paid so far: '+gbp(paid-cleared),14,C.ask,'start',700,true);
+  txt(svg,bx+30,by+296,'balance: '+gbp(m.bal),14,C.gold,'start',700,true);
+}
+function drawCurve(svg){ const s=cur(); areaChart(svg,40,50,920,460,s,{title:'EVERY PAYMENT FOR '+(s.length/12).toFixed(1)+' YEARS AT '+(rate*100).toFixed(2)+'% — WHERE THE CROSSOVER SITS'}); }
+function drawOverpay(svg){
+  const b=base(), s=cur();
+  const {px,py}=areaChart(svg,40,50,920,460,b,{title:'BASELINE vs +'+gbp(extra)+' A MONTH',cross:false});
+  // overlay overpaid capital line
+  const n=b.length, maxPay=Math.max(...b.map(m=>m.pay)); const py2=v=>50+460-14-(460-40)*(v/maxPay);
+  svg.appendChild(svgEl('polyline',{points:s.map(m=>px(m.k)+','+py2(m.c)).join(' '),fill:'none',stroke:C.gold,'stroke-width':2.5}));
+  svg.appendChild(svgEl('line',{x1:px(s.length),y1:80,x2:px(s.length),y2:496,stroke:C.gold,'stroke-dasharray':'5 5'}));
+  txt(svg,px(s.length)-6,96,'paid off: month '+s.length+' ('+(s.length/12).toFixed(1)+' yrs)',12,C.gold,'end',700,true);
+}
+function drawReset(svg){
+  const s=resetSched(); const {px,py}=areaChart(svg,40,50,920,460,s.slice(0,120),{title:'FIRST 10 YEARS · 2-YEAR FIX AT 3%'+(reset?' → 5% FROM MONTH 25':' (NOT YET RESET)'),cross:false});
+  svg.appendChild(svgEl('line',{x1:px(25),y1:80,x2:px(25),y2:496,stroke:C.ask,'stroke-dasharray':'5 5'}));
+  const before=s[23], after=s[24];
+  txt(svg,px(25)+8,100,'month 25: '+gbp2(before.pay)+' → '+gbp2(after.pay)+(reset?'  (+'+gbp2(after.pay-before.pay)+')':''),13,reset?C.ask:C.mut,'start',700,true);
+}
+function drawPayoff(svg){
+  const s=base(), m=s[0];
+  txt(svg,500,70,gbp(m.pay)+'  →  '+gbp(m.c)+' buys the house',44,C.gold,'middle',700,true);
+  txt(svg,500,104,'MONTH 1 · £250,000 · 25 YEARS · 5%',13,C.mut2,'middle',700,true);
+  const L=[['Interest is charged on the balance. The payment is fixed.','early on, most of a fixed payment is interest because the balance is at its biggest',C.ask],
+    ['The split flips at month 135 — year 11','only then does more than half the payment buy house',C.gold],
+    ['Overpayments hit the balance, so they hit every future month’s interest','+£100 a month here removes 35 months and £25,382 of interest',C.bid],
+    ['The reset re-runs the same maths on the balance you have left','a 3% → 5% step at month 25 is +£256 a month on this loan — the balance barely moved',C.blue]];
+  L.forEach((l,i)=>{if(reveal<=i) return; const y=150+i*86; svg.appendChild(svgEl('rect',{x:100,y,width:800,height:66,rx:10,fill:C.panel,stroke:l[2],'stroke-width':1.5})); txt(svg,130,y+29,(i+1)+'.  '+l[0],17,l[2],'start',700); txt(svg,130,y+52,l[1],14,C.mut,'start');});
+  if(reveal>=5) txt(svg,500,530,'CHALLENGE — find the rate where month 1 is half interest, half house. Comments.',15,C.txt,'middle',700,true);
+}
+
+const card=(k,v,cls='')=>`<div class="card ${cls}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+const scenes=[
+ {id:'hook',caption:'25 years of payments, drawn month by month — <b>watch the red</b>',title:'Your first payment. Most of it isn’t the house.',sub:'A £250,000 repayment mortgage over 25 years at a fixed 5%. While the rate is fixed the payment doesn’t move — what it buys changes every month.',controls:{},maxReveal:0,draw:drawHook,
+  side(){const m=base()[0]; return card('Payment',gbp2(m.pay),'')+card('Interest, month 1',gbp(m.i),'bad')+card('Buys the house',gbp(m.c),'hero')+`<div class="callout"><b>Fixed rate, fixed payment.</b> The split inside it is what this video is about.</div>`;}},
+ {id:'split',caption:'<b>N</b> next month · <b>Y</b> next year — prediction first',title:'Month by month',sub:'Interest is charged on what you still owe. The payment is fixed. So the bigger the balance, the more of the payment is interest.',controls:{step:true},maxReveal:0,draw:drawSplit,
+  side(){const s=base(),m=s[month-1],paid=sum(s.slice(0,month),x=>x.pay); return card('Month',month,'')+card('Paid so far',gbp(paid),'')+card('Loan cleared',gbp(LOAN-m.bal),'hero')+card('Interest so far',gbp(paid-(LOAN-m.bal)),'bad')+`<div class="callout blue"><b>Before you press Y five times:</b> after 5 years you will have paid about £87,700. How much of the £250,000 is gone?</div>`;}},
+ {id:'curve',caption:'<b>T</b> — drag the rate and watch the crossover move',title:'The crossover',sub:'The month when more than half the payment buys house. At 5% it is year 11. The rate decides where it sits.',controls:{rate:true},maxReveal:0,draw:drawCurve,
+  side(){const s=cur(),cr=s.find(m=>m.c>m.i),m=s[0]; return card('Rate',(rate*100).toFixed(2)+'%','bad')+card('Payment',gbp2(m.pay),'')+card('Crossover',cr?'month '+cr.k+' <small>yr '+(cr.k/12).toFixed(1)+'</small>':'—','gold')+card('Total interest, 25y',gbp(sum(s,x=>x.i)),'bad')+`<div class="callout"><b>Not a slow start you can skip.</b> It is the shape of every repayment loan: the balance is biggest at the start, so the interest is too.</div>`;}},
+ {id:'overpay',caption:'<b>E</b> — overpay, and watch where the gold line ends',title:'What an overpayment actually does',sub:'An overpayment goes straight to the balance — which means every future month charges interest on a smaller number.',controls:{extra:true},maxReveal:0,draw:drawOverpay,
+  side(){const b=base(),s=cur(); return card('Overpayment',gbp(extra)+' <small>/m</small>','hero')+card('Paid off in',(s.length/12).toFixed(1)+' <small>yrs</small>','gold')+card('Months removed',b.length-s.length,'gold')+card('Interest saved',gbp(sum(b,x=>x.i)-sum(s,x=>x.i)),'hero')+`<div class="callout warn"><b>Mechanics, not a suggestion.</b> Whether overpaying makes sense depends on early-repayment charges, the rate elsewhere and the buffer you keep — none of which are on this page.</div>`;}},
+ {id:'reset',caption:'<b>X</b> — the 2-year fix ends. Same loan, new rate',title:'The reset',sub:'A fixed rate ends and the same maths re-runs on the balance you have left — which, two years in, is almost all of it.',controls:{reset:true},maxReveal:0,draw:drawReset,
+  side(){const s=resetSched(),b=s[23],a=s[24]; return card('Payment, 3% fix',gbp2(b.pay),'')+card('Balance at month 24',gbp(b.bal),'gold')+card('Payment at 5%',reset?gbp2(a.pay):'—','bad')+card('Jump',reset?'+'+gbp2(a.pay-b.pay)+' <small>/m</small>':'—','bad')+`<div class="callout"><b>Why the jump is big.</b> Two years of payments cleared £13,800. The new rate applies to the other £236,000.</div>`;}},
+ {id:'payoff',caption:'The payoff — <b>→</b> reveals each line',title:'The payment is fixed. What it buys isn’t.',sub:'Four things about a repayment mortgage that the monthly figure hides.',controls:{},maxReveal:5,draw:drawPayoff,
+  side(){const s=base(); return card('Payment',gbp2(s[0].pay),'')+card('Total paid, 25y',gbp(sum(s,x=>x.pay)),'')+card('Of which interest',gbp(sum(s,x=>x.i)),'bad')+`<div class="callout warn"><b>Not advice.</b> Illustrative loan, no fees, no product terms. How any of this applies to a real mortgage is a question for a regulated adviser.</div>`;}}
+];
+
+/* ---------- render ---------- */
+function render(){
+  const sc=scenes[scene]; $('title').textContent=sc.title; $('sub').textContent=sc.sub;
+  $('scnCount').textContent='SCENE '+(scene+1)+' / '+scenes.length; $('scnCaption').innerHTML=sc.caption; $('side').innerHTML=sc.side(); $('build').textContent=BUILD;
+  ['step','rate','extra','reset'].forEach(k=>$('ctl-'+k).classList.toggle('hidden',!sc.controls[k]));
+  const s=sc.id==='split'?base():sc.id==='reset'?resetSched():sc.id==='curve'||sc.id==='overpay'?cur():base();
+  const m=sc.id==='split'?s[month-1]:sc.id==='reset'?s[reset?24:23]:s[0];
+  $('st-pay').textContent=gbp2(m.pay); $('st-int').textContent=gbp(m.i); $('st-cap').textContent=gbp(m.c); $('st-bal').textContent=gbp(m.bal);
+  $('resetBtn').classList.toggle('armed',reset);
+  const svg=$('viz'); while(svg.firstChild) svg.removeChild(svg.firstChild); sc.draw(svg);
+}
+// One sweep, month 1 → 300 (~9s), then park on month 1 with the overlay and hold.
+setInterval(()=>{if(paused||hookOverlay||scenes[scene].id!=='hook') return; hookT+=2; if(hookT>TERM) hookOverlay=true; render();},60);
+
+/* ---------- events ---------- */
+function goto(n){scene=Math.max(0,Math.min(scenes.length-1,n)); reveal=0; gen++; hookOverlay=false; hookT=0; render();}
+function advance(){const sc=scenes[scene]; if(reveal<sc.maxReveal){reveal++; render(); return;} goto(scene+1);}
+function setFill(r){r.style.setProperty('--fill',(100*(r.value-r.min)/(r.max-r.min))+'%');}
+function resetScene(){gen++; const id=scenes[scene].id; if(id==='hook'){hookT=0; hookOverlay=false;} if(id==='split') month=1; if(id==='curve'){rate=.05; $('rateRange').value=5; $('rateVal').textContent='5.00%'; setFill($('rateRange'));} if(id==='overpay'){extra=0; $('extraRange').value=0; $('extraVal').textContent='£0'; setFill($('extraRange'));} if(id==='reset') reset=false; reveal=0; render();}
+const stepM=n=>{if(scenes[scene].id!=='split') return; month=Math.min(TERM, n===12 ? Math.floor(month/12)*12+12 : month+n); render();};
+$('mBtn').addEventListener('click',()=>stepM(1)); $('yBtn').addEventListener('click',()=>stepM(12));
+$('rateRange').addEventListener('input',e=>{rate=+e.target.value/100; setFill(e.target); $('rateVal').textContent=(+e.target.value).toFixed(2)+'%'; render();});
+$('extraRange').addEventListener('input',e=>{extra=+e.target.value; setFill(e.target); $('extraVal').textContent=gbp(extra); render();});
+const fireReset=()=>{if(scenes[scene].id!=='reset') return; reset=!reset; render();};
+
+/* ---------- keyboard slider sweeps (b03) ----------
+   T and E used to just .focus() the range input, which never worked: the
+   keydown handler blurs any focused input on every keypress, so the next
+   arrow key changed the scene instead of moving the slider — the same bug
+   pension-vs-isa had before pvi-b03. Now each press sweeps the slider
+   smoothly to the next value the script asks for, at the same pace every
+   take. Mouse dragging still works exactly as before. */
+const RATE_STOPS=[3,7,5], EXTRA_STOPS=[100,200,0];   // script: 5→3→7→5 · £0→£100→£200→£0
+function nextStop(stops,cur){const i=stops.indexOf(cur); return i<0?stops[0]:stops[(i+1)%stops.length];}
+const ratePct=()=>Math.round(rate*10000)/100;          // 0.07 → 7, not 7.000000000000001
+// A press during a sweep cancels it and moves on from where it was *heading*,
+// so a quick double-press still follows 5→3→7→5 instead of restarting.
+let sweepTok=0; const sweepTo={rate:null,extra:null};
+const nextRate =()=>nextStop(RATE_STOPS, sweepTo.rate ??ratePct());
+const nextExtra=()=>nextStop(EXTRA_STOPS,sweepTo.extra??extra);
+function sweep(which,to,ms){
+  const el=which==='rate'?$('rateRange'):$('extraRange');
+  const from=which==='rate'?ratePct():extra;
+  const tok=++sweepTok; sweepTo.rate=sweepTo.extra=null;
+  if(from===to) return;
+  sweepTo[which]=to;
+  const g=gen, t0=performance.now();
+  (function step(now){
+    if(g!==gen||tok!==sweepTok){if(tok===sweepTok) sweepTo[which]=null; return;}  // scene change, reset or a newer press: abandon
+    if(now-t0>=ms) sweepTo[which]=null;
+    const p=Math.min(1,(now-t0)/ms), e=p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+    if(which==='rate'){const v=Math.round((from+(to-from)*e)*100)/100; rate=v/100; el.value=v; $('rateVal').textContent=v.toFixed(2)+'%';}
+    else{const v=Math.round(from+(to-from)*e); extra=v; el.value=v; $('extraVal').textContent=gbp(v);}
+    setFill(el); render();
+    if(p<1) requestAnimationFrame(step);
+  })(t0);
+}
+$('resetBtn').addEventListener('click',fireReset);
+$('prev').addEventListener('click',()=>goto(scene-1)); $('next').addEventListener('click',advance);
+document.addEventListener('keydown',e=>{
+  const a=document.activeElement; if(a&&(a.tagName==='INPUT'||a.tagName==='BUTTON')) a.blur();
+  const k=e.key.toLowerCase();
+  if(e.key==='ArrowRight'){e.preventDefault(); advance();} if(e.key==='ArrowLeft'){e.preventDefault(); goto(scene-1);}
+  if(/^[1-6]$/.test(e.key)) goto(+e.key-1);
+  if(k==='n') stepM(1); if(k==='y') stepM(12); if(k==='x') fireReset(); if(k==='r') resetScene();
+  if(k==='t'&&scenes[scene].controls.rate)  sweep('rate', nextRate(), 2000);
+  if(k==='e'&&scenes[scene].controls.extra) sweep('extra',nextExtra(),1600);
+  if(e.key===' '){e.preventDefault(); paused=!paused;}
+});
+setFill($('rateRange')); setFill($('extraRange')); goto(0);
+
+/* ---------- sanity ---------- */
+function sanity(){
+  const b=base(), m=b[0], cr=b.find(x=>x.c>x.i);
+  const at=k=>{const paid=sum(b.slice(0,k),x=>x.pay); return `| ${k} | ${gbp(paid)} | ${gbp(LOAN-b[k-1].bal)} | ${gbp(b[k-1].bal)} |`;};
+  const op=[50,100,200].map(x=>{const s=schedule(LOAN,.05,TERM,x); return `| +£${x} | ${s.length} m (${(s.length/12).toFixed(1)} y) | ${b.length-s.length} | ${gbp(sum(b,y=>y.i)-sum(s,y=>y.i))} |`;});
+  const rs=schedule(LOAN,.03,TERM,0,24,.05);
+  const out=['SANITY — £250,000 · 25y · 5%',`payment ${gbp2(m.pay)} · m1 interest ${gbp2(m.i)} · m1 capital ${gbp2(m.c)} · total ${gbp(sum(b,x=>x.pay))} · interest ${gbp(sum(b,x=>x.i))}`,
+    `crossover month ${cr.k} (yr ${(cr.k/12).toFixed(1)})`,'| month | paid | cleared | balance |','|---|---|---|---|',at(12),at(24),at(60),at(120),at(180),
+    '| overpay | term | months saved | interest saved |','|---|---|---|---|',...op,
+    `reset: 3% fix ${gbp2(rs[23].pay)} → balance m24 ${gbp(rs[23].bal)} → 5% ${gbp2(rs[24].pay)} (+${gbp2(rs[24].pay-rs[23].pay)})`].join('\n');
+  console.log(out); return out;}
+window.sanity=sanity;
+</script>
+</body>
+</html>

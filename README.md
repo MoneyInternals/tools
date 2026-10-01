@@ -19,6 +19,7 @@ Every page is **frozen as broadcast**: it's the exact build that appeared in the
 | [`/pension/ep03-pension-relief/`](https://moneyinternals.com/pension/ep03-pension-relief/) | Higher-rate relief nobody claims | Pension series · 03 |
 | [`/book-to-bill/`](https://moneyinternals.com/book-to-bill/) | The order queue — why revenue stops at capacity | Market Mechanics |
 | [`/pension-vs-isa/`](https://moneyinternals.com/pension-vs-isa/) | Pension vs ISA — the same £1,000, two jars | UK Money Mechanics |
+| [`/mortgage-split/`](https://moneyinternals.com/mortgage-split/) | Your first mortgage payment — where the £1,461 goes | UK Money Mechanics |
 
 `/pension/ep03-relief-at-source/` is a redirect to `/pension/ep03-pension-relief/`, kept so an older link keeps working.
 
