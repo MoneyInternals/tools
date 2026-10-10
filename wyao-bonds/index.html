@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Why bond prices fall when rates rise — Money Internals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0B0E13; --panel:#121821; --panel2:#171F2A; --line:#232A33; --line2:#2C3540; --txt:#E6EAF0; --mut:#8B94A3; --mut2:#5C6675; --bid:#2EBD85; --ask:#F6465D; --gold:#E8B33C; --blue:#4A9EDA; --accent:#2EBD85; --sans:'Inter',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace; --r:10px}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{height:100%}
+body{background:var(--bg); color:var(--txt); font-family:var(--sans); font-weight:500; display:flex; flex-direction:column; overflow:hidden}
+.tnum{font-variant-numeric:tabular-nums}
+.topbar{display:flex; align-items:center; gap:26px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel)}
+.brand .name{font-size:16px; letter-spacing:.3px} .brand .name b{color:var(--bid); font-weight:700}
+.ticker{font-family:var(--mono); font-size:12px; color:var(--mut); letter-spacing:2px}
+.stats{margin-left:auto; display:flex; gap:26px}
+.stat-h{display:flex; flex-direction:column; align-items:flex-end}
+.stat-h .k{font-size:10px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2)}
+.stat-h .v{font-family:var(--mono); font-size:17px; font-weight:700}
+#st-cpn{color:var(--gold)} #st-yld{color:var(--ask)} #st-px{color:var(--bid)}
+.stage{flex:1; display:grid; grid-template-columns:1fr 360px; min-height:0; position:relative}
+.main{display:flex; flex-direction:column; padding:22px 26px 26px; min-width:0; min-height:0}
+.main h1{font-size:26px; font-weight:700; letter-spacing:-.3px}
+.main .sub{color:var(--mut); font-size:15px; margin-top:6px; line-height:1.45; max-width:70ch}
+.viz{flex:1; margin-top:14px; min-height:0; display:flex} .viz svg{width:100%; height:100%}
+.side{border-left:1px solid var(--line); background:var(--panel); padding:18px; display:flex; flex-direction:column; gap:12px; overflow-y:auto}
+.card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--r); padding:13px 16px}
+.card .k{font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:var(--mut2); margin-bottom:4px}
+.card .v{font-family:var(--mono); font-size:26px; font-weight:700; font-variant-numeric:tabular-nums} .card .v small{font-size:14px; color:var(--mut); font-weight:500}
+.card.hero{border-color:var(--bid)} .card.hero .v{color:var(--bid); font-size:31px}
+.card.bad{border-color:var(--ask)} .card.bad .v{color:var(--ask)}
+.card.gold{border-color:var(--gold)} .card.gold .v{color:var(--gold)}
+.card.blue{border-color:var(--blue)} .card.blue .v{color:var(--blue)}
+.callout{background:var(--panel2); border-left:3px solid var(--gold); border-radius:0 var(--r) var(--r) 0; padding:12px 15px; font-size:14.5px; line-height:1.5} .callout b{color:var(--gold)}
+.callout.warn{border-left-color:var(--ask)} .callout.warn b{color:var(--ask)} .callout.good{border-left-color:var(--bid)} .callout.good b{color:var(--bid)} .callout.blue{border-left-color:var(--blue)} .callout.blue b{color:var(--blue)}
+.controls{display:flex; align-items:center; gap:22px; flex-wrap:wrap; padding:12px 26px; border-top:1px solid var(--line); background:var(--panel)}
+.ctl{display:flex; align-items:center; gap:12px} .ctl.hidden{display:none}
+.ctl .lbl{font-size:11px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2); white-space:nowrap}
+.ctl .val{font-family:var(--mono); font-size:16px; font-weight:700; min-width:70px} .ctl .val.bad{color:var(--ask)} .ctl .val.gold{color:var(--gold)}
+input[type=range]{-webkit-appearance:none; appearance:none; width:240px; height:6px; border-radius:3px; background:linear-gradient(to right, var(--ask) var(--fill,0%), var(--line2) var(--fill,0%)); outline:none; cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:18px; height:18px; border-radius:50%; background:var(--txt); border:3px solid var(--ask); cursor:grab}
+input[type=range]:focus-visible{outline:2px solid var(--txt); outline-offset:3px}
+.seg{display:flex; border:1px solid var(--line2); border-radius:6px; overflow:hidden}
+.seg button{font-family:var(--mono); font-size:13px; padding:8px 14px; border:0; background:var(--panel2); color:var(--mut); cursor:pointer} .seg button.on{background:var(--blue); color:#0B0E13; font-weight:700}
+.lock{font-family:var(--mono); font-size:13px; padding:8px 14px; border-radius:6px; border:1px solid var(--gold); color:var(--gold); background:var(--panel2)}
+.stepper{display:grid; grid-template-columns:auto 1fr auto auto; align-items:center; gap:18px; padding:11px 20px; border-top:1px solid var(--line); background:var(--panel)}
+.scn-count{font-family:var(--mono); font-size:14px; color:var(--mut); white-space:nowrap} .scn-caption{font-size:15px} .scn-caption b{color:var(--accent)}
+.disclaimer{font-size:11px; color:var(--mut2); white-space:nowrap}
+.scn-nav{display:flex; gap:8px} .scn-nav button{font-family:var(--mono); font-size:13px; padding:7px 14px; border-radius:6px; border:1px solid var(--line2); background:var(--panel2); color:var(--mut); cursor:pointer} .scn-nav button:hover{border-color:var(--accent); color:var(--accent)}
+.build{position:absolute; left:26px; bottom:8px; font-family:var(--mono); font-size:10px; color:var(--mut2)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><span class="name">MONEY <b>INTERNALS</b></span></div>
+  <span class="ticker">WHAT YOU ACTUALLY OWN · 01 · A BOND</span>
+  <div class="stats">
+    <div class="stat-h"><span class="k">Coupon (locked)</span><span class="v tnum" id="st-cpn">—</span></div>
+    <div class="stat-h"><span class="k">Market rate</span><span class="v tnum" id="st-yld">—</span></div>
+    <div class="stat-h"><span class="k">Price of your bond</span><span class="v tnum" id="st-px">—</span></div>
+  </div>
+</div>
+<div class="stage">
+  <div class="main"><h1 id="title"></h1><div class="sub" id="sub"></div><div class="viz"><svg id="viz" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet"></svg></div></div>
+  <div class="side" id="side"></div><div class="build" id="build"></div>
+</div>
+<div class="controls">
+  <div class="ctl" id="ctl-yld"><span class="lbl">Market rate</span><input type="range" id="yldRange" min="1" max="10" step="0.25" value="4"><span class="val bad tnum" id="yldVal">4.00%</span></div>
+  <div class="ctl" id="ctl-mat"><span class="lbl">Years to maturity</span><div class="seg" id="matSeg"><button data-n="2">2</button><button data-n="5">5</button><button data-n="10" class="on">10</button><button data-n="30">30</button></div></div>
+  <div class="ctl" id="ctl-cpn"><span class="lock">COUPON £40 / YEAR — LOCKED</span></div>
+</div>
+<div class="stepper">
+  <span class="scn-count" id="scnCount"></span><span class="scn-caption" id="scnCaption"></span>
+  <span class="disclaimer">Illustrative bonds · £1,000 face, 4% annual coupon · 2022 figures are historical · no fund, no yield quoted as current · educational — not advice</span>
+  <div class="scn-nav"><button id="prev">← Prev</button><button id="next">Next →</button></div>
+</div>
+<script>
+/* ============================================================
+   BUILD wyao-b02 — "Why bond prices fall when rates rise"
+   b02 (2026-10-10): the story version.
+     · Scene 1 is now the two friends (2-year and 30-year bond, £40 a year
+       each). → reveals the September 2022 stamp; Y sweeps 4% → 5%; at 5%
+       the big text "−£19 vs −£154" lands. Replaces the 10-year hook loop.
+     · Y now SWEEPS the rate to the next value the script asks for. It used
+       to .focus() the slider, which never worked: the keydown handler blurs
+       any focused input on every keypress (same bug mortgage-split fixed in
+       mtg-b03). Mouse dragging still works.
+     · Scene 4 tags the 2-year and 30-year as Friend 1 / Friend 2. → reveal 1
+       sweeps back to 5% and shows "has to sell £846 / waits £1,000";
+       → reveal 2 shows the September 2022 pension-scheme / Bank of England line.
+     · The friends' prices show the % too (−£154 (−15.4%) on paper): the thumbnail's
+       −15% is on screen in the hook, not first at the four bonds.
+     · Rate slider goes to 10% (was 8%): the challenge — the 30-year at half
+       its face — is at 8.77% (8.75% on the slider = £500.98). At 8% it was unsolvable.
+   Key map:  → advance (reveals on scenes 1, 4, 5) · ← back · 1–5 jump
+     Y  sweep the rate to the next stop (2 s; 2.4 s on scene 1):
+        scene 1  4→5→4 · scene 2  4→5→3→4 · scene 3  4→5→4 · scene 4  4→5→3→4
+     2/5/0/3 maturity 2/5/10/30 (scenes 2–3) · R reset scene (rate 4%)
+   Arithmetic (sanity()): price = Σ coupon/(1+y)^t + face/(1+y)^n
+     10y, 4% coupon: 4%→5% = £1,000 → £922.78 (−7.7%)
+     2y £981.41 (−£19, −1.9%) · 5y −4.3% · 10y −7.7% · 30y £846.28 (−£154, −15.4%)
+   2022 (shows/wyao-bonds/story-2022.md): 30-year gilt yield under 4% → 5%,
+     22–27 Sep 2022; Bank of England stepped in 28 Sep 2022.
+   ============================================================ */
+const BUILD='wyao-b02', FACE=1000, CPN=0.04;
+const $=id=>document.getElementById(id);
+const C={panel:'#171F2A',line:'#232A33',line2:'#2C3540',txt:'#E6EAF0',mut:'#8B94A3',mut2:'#5C6675',bid:'#2EBD85',ask:'#F6465D',gold:'#E8B33C',blue:'#4A9EDA'};
+const NS='http://www.w3.org/2000/svg';
+const svgEl=(t,a)=>{const e=document.createElementNS(NS,t); for(const k in a) e.setAttribute(k,a[k]); return e;};
+function txt(svg,x,y,s,size=14,fill=C.txt,anchor='start',weight=500,mono=false){const t=svgEl('text',{x,y,'font-size':size,fill,'text-anchor':anchor,'font-weight':weight,'font-family':mono?"'JetBrains Mono',monospace":"'Inter',sans-serif"}); t.textContent=s; svg.appendChild(t); return t;}
+const gbp=n=>'£'+n.toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});
+const gbp0=n=>'£'+Math.round(n).toLocaleString('en-GB');
+const sgn=n=>(Math.round(n)<0?'−':Math.round(n)>0?'+':'')+'£'+Math.abs(Math.round(n)).toLocaleString('en-GB');   // −£19, not £-19
+const pct=n=>(n*100).toFixed(2)+'%';
+
+let y=0.04, n=10, scene=0, reveal=0, gen=0;
+const later=(ms,fn)=>{const g=gen; setTimeout(()=>{if(g===gen) fn();},ms);};
+const price=(yy=y,nn=n)=>{let p=0; for(let t=1;t<=nn;t++) p+=FACE*CPN/Math.pow(1+yy,t); return p+FACE/Math.pow(1+yy,nn);};
+const flows=(yy=y,nn=n)=>{const out=[]; for(let t=1;t<=nn;t++){const cf=FACE*CPN+(t===nn?FACE:0); out.push({t,cf,pv:cf/Math.pow(1+yy,t)});} return out;};
+
+function frame(svg,x,yy,w,h){svg.appendChild(svgEl('rect',{x,y:yy,width:w,height:h,rx:8,fill:C.panel,stroke:C.line}));}
+function seesaw(svg,x,yy,w,h,yy_,nn,label){
+  frame(svg,x,yy,w,h); const p=price(yy_,nn);
+  txt(svg,x+w/2,yy+26,label,12,C.mut2,'middle',700,true);
+  // price bar
+  const bh=h-110, sc=bh/1300, ph=p*sc, bx=x+w/2-50;
+  svg.appendChild(svgEl('rect',{x:bx,y:yy+40+bh-1000*sc,width:100,height:1000*sc,rx:6,fill:C.line2}));
+  svg.appendChild(svgEl('line',{x1:x+20,y1:yy+40+bh-1000*sc,x2:x+w-20,y2:yy+40+bh-1000*sc,stroke:C.mut2,'stroke-dasharray':'4 5'}));
+  txt(svg,x+w-22,yy+36+bh-1000*sc,'£1,000 face',10.5,C.mut2,'end',700,true);
+  svg.appendChild(svgEl('rect',{x:bx,y:yy+40+bh-ph,width:100,height:ph,rx:6,fill:p>=FACE-0.01?C.bid:C.ask,opacity:.9}));
+  txt(svg,x+w/2,yy+h-42,gbp(p),22,p>=FACE-0.01?C.bid:C.ask,'middle',700,true);
+  txt(svg,x+w/2,yy+h-20,((p-FACE)/FACE*100).toFixed(1)+'% vs face · rate '+pct(yy_),12,C.mut,'middle',500,true);
+}
+// Scene 1 — the two friends: same £1,000, same £40 a year, one 2-year bond, one 30-year.
+function friendCol(svg,x,nn,who){
+  const w=290,yy=40,h=460; frame(svg,x,yy,w,h); const p=price(y,nn), up=p>=FACE-0.01;
+  txt(svg,x+w/2,yy+28,who,15,nn===2?C.blue:C.gold,'middle',700,true);
+  txt(svg,x+w/2,yy+50,nn+'-YEAR BOND · £40 A YEAR',12,C.mut2,'middle',700,true);
+  const bh=250, sc=bh/1300, top=yy+70, bx=x+w/2-55;
+  svg.appendChild(svgEl('rect',{x:bx,y:top+bh-1000*sc,width:110,height:1000*sc,rx:6,fill:C.line2}));
+  svg.appendChild(svgEl('line',{x1:x+16,y1:top+bh-1000*sc,x2:x+w-16,y2:top+bh-1000*sc,stroke:C.mut2,'stroke-dasharray':'4 5'}));
+  txt(svg,x+w-18,top+bh-1000*sc-5,'lent £1,000',10.5,C.mut2,'end',700,true);
+  svg.appendChild(svgEl('rect',{x:bx,y:top+bh-p*sc,width:110,height:p*sc,rx:6,fill:up?C.bid:C.ask,opacity:.9}));
+  txt(svg,x+w/2,yy+h-70,gbp0(p),34,up?C.bid:C.ask,'middle',700,true);
+  txt(svg,x+w/2,yy+h-34,Math.abs(p-FACE)<0.5?'worth what they lent':sgn(p-FACE)+' ('+(p<FACE?'−':'+')+Math.abs((p-FACE)/FACE*100).toFixed(1)+'%) on paper',17,up?C.mut:C.ask,'middle',700,true);
+}
+function drawFriends(svg){
+  friendCol(svg,30,2,'FRIEND 1'); friendCol(svg,680,30,'FRIEND 2');
+  frame(svg,340,40,320,460); txt(svg,500,68,'THE MARKET RATE',12,C.mut2,'middle',700,true);
+  txt(svg,500,150,pct(y),56,C.ask,'middle',700,true); txt(svg,500,182,'new bonds pay '+gbp0(FACE*y)+' a year',14,C.mut,'middle');
+  txt(svg,500,226,'both friends: £40 a year · locked',13,C.gold,'middle',700,true);
+  if(reveal>=1){
+    svg.appendChild(svgEl('rect',{x:362,y:262,width:276,height:150,rx:8,fill:C.panel2,stroke:C.gold,'stroke-width':1.5}));
+    txt(svg,500,296,'SEPTEMBER 2022',22,C.gold,'middle',700,true);
+    txt(svg,500,330,'30-year UK government bonds',14,C.txt,'middle',700);
+    txt(svg,500,356,'under 4% → 5%',20,C.ask,'middle',700,true);
+    txt(svg,500,384,'in three days',14,C.mut,'middle');
+  }
+  if(y>=0.0499){const a=sgn(price(y,2)-FACE), b=sgn(price(y,30)-FACE);
+    txt(svg,500,549,a+'  vs  '+b,36,C.txt,'middle',700,true);}
+}
+function drawSeesaw(svg){ seesaw(svg,80,40,380,470,y,n,'YOUR BOND · '+n+' YEARS · COUPON £40 LOCKED');
+  frame(svg,540,40,380,470); txt(svg,730,66,'WHAT A NEW BUYER COMPARES',12,C.mut2,'middle',700,true);
+  txt(svg,730,150,'New bond, £1,000: pays '+gbp0(FACE*y)+' / yr',15,C.txt,'middle',700);
+  txt(svg,730,200,'Your bond, £1,000 face: pays £40 / yr',15,C.gold,'middle',700);
+  const p=price();
+  txt(svg,730,300,y>CPN+1e-9?'Nobody pays £1,000 for £40 when £1,000 buys '+gbp0(FACE*y)+'.':y<CPN-1e-9?'£40 is more than a new bond pays. Yours is worth more than face.':'Same coupon as the market. Price = face.',13.5,C.mut,'middle');
+  txt(svg,730,340,'The price drops until £40 on '+gbp0(p)+' matches the market.',13.5,C.mut,'middle');
+  txt(svg,730,440,'Only one number is free to move: the price.',15,C.ask,'middle',700);
+}
+function drawLadder(svg){
+  const f=flows(); const x=60,w=880,yy=60,h=440; frame(svg,x,yy,w,h);
+  txt(svg,x+16,yy+24,'EVERY PAYMENT YOUR BOND WILL MAKE — AND WHAT EACH IS WORTH TODAY AT '+pct(y),12,C.mut2,'start',700,true);
+  const bw=Math.min(60,(w-80)/f.length-8), maxCf=FACE+FACE*CPN, sc=(h-120)/maxCf;
+  f.forEach((fl,i)=>{const bx=x+40+i*((w-80)/f.length); const full=fl.cf*sc, pv=fl.pv*sc;
+    svg.appendChild(svgEl('rect',{x:bx,y:yy+h-50-full,width:bw,height:full,rx:4,fill:C.line2}));
+    svg.appendChild(svgEl('rect',{x:bx,y:yy+h-50-pv,width:bw,height:pv,rx:4,fill:fl.t===n?C.bid:C.gold,opacity:.9}));
+    txt(svg,bx+bw/2,yy+h-34,'yr '+fl.t,10,C.mut2,'middle',500,true);
+    if(f.length<=10) txt(svg,bx+bw/2,yy+h-54-full,gbp0(fl.cf),10,C.mut,'middle',500,true);});
+  const p=price(); txt(svg,x+w-16,yy+h-16,'sum of today’s values = price = '+gbp(p),14,C.txt,'end',700,true);
+  txt(svg,x+16,yy+h-16,'grey = the payment · colour = its value today',11,C.mut2,'start',500,true);
+}
+function drawDuration(svg){
+  const FR={2:['FRIEND 1',C.blue],30:['FRIEND 2',C.gold]};
+  [[2,80],[5,300],[10,520],[30,740]].forEach(([nn,x])=>{const p0=price(0.04,nn), p1=price(y,nn);
+    frame(svg,x,50,190,460); if(FR[nn]) svg.appendChild(svgEl('rect',{x,y:50,width:190,height:460,rx:8,fill:'none',stroke:FR[nn][1],'stroke-width':1.5}));
+    txt(svg,x+95,76,nn+' YEARS',13,FR[nn]?FR[nn][1]:C.mut2,'middle',700,true);
+    if(FR[nn]) txt(svg,x+95,100,FR[nn][0],14,FR[nn][1],'middle',700,true);
+    const bh=300, sc=bh/1300; svg.appendChild(svgEl('rect',{x:x+55,y:100+bh-1000*sc,width:80,height:1000*sc,rx:5,fill:C.line2}));
+    svg.appendChild(svgEl('rect',{x:x+55,y:100+bh-p1*sc,width:80,height:p1*sc,rx:5,fill:p1>=FACE-0.01?C.bid:C.ask,opacity:.9}));
+    txt(svg,x+95,440,gbp0(p1),20,p1>=FACE-0.01?C.bid:C.ask,'middle',700,true); txt(svg,x+95,464,((p1-FACE)/FACE*100).toFixed(1)+'% at '+pct(y),12,C.mut,'middle',500,true);
+    if(reveal>=1&&nn===30) txt(svg,x+95,492,'HAS TO SELL → '+gbp0(p1),12.5,C.ask,'middle',700,true);
+    else if(reveal>=1&&nn===2) txt(svg,x+95,492,'WAITS → £1,000 AT THE END',11.5,C.bid,'middle',700,true);
+    else txt(svg,x+95,490,'more years of £40 to re-price',10.5,C.mut2,'middle',500,true);});
+  if(reveal>=2) txt(svg,500,540,'Sept 2022: pension schemes had to sell long bonds — the Bank of England stepped in.',15,C.gold,'middle',700);
+  else txt(svg,500,540,'Same coupon. Same rate move. The longer the bond, the harder the seesaw tips.',15,C.txt,'middle',700);
+}
+function drawPayoff(svg){
+  txt(svg,500,70,'Same move · 2-year '+sgn(price(0.05,2)-FACE)+' · 30-year '+sgn(price(0.05,30)-FACE),32,C.gold,'middle',700,true);
+  txt(svg,500,104,'£1,000 BONDS · £40 A YEAR · RATES 4% → 5%',13,C.mut2,'middle',700,true);
+  const L=[['The coupon is a promise. The price is a market.','the £40 never changes — the price moves until £40 on that price matches what new bonds pay',C.gold],
+    ['Price = every future payment, valued today','raise the rate, every payment is worth less today, and the far ones lose the most',C.blue],
+    ['Longer bond, bigger swing','2y −1.9% · 5y −4.3% · 10y −7.7% · 30y −15.4% on the same 1% move',C.ask],
+    ['If you hold to the end, you get £1,000 and every coupon regardless','the price only bites if you sell early — or hold it through something that is marked to market daily',C.bid]];
+  L.forEach((l,i)=>{if(reveal<=i) return; const yy=150+i*86; svg.appendChild(svgEl('rect',{x:100,y:yy,width:800,height:66,rx:10,fill:C.panel,stroke:l[2],'stroke-width':1.5})); txt(svg,130,yy+29,(i+1)+'.  '+l[0],17,l[2],'start',700); txt(svg,130,yy+52,l[1],14,C.mut,'start');});
+  if(reveal>=5) txt(svg,500,530,'CHALLENGE — find the rate where the 30-year bond is worth exactly half its face. Comments.',15,C.txt,'middle',700,true);
+}
+const card=(k,v,cls='')=>`<div class="card ${cls}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+const scenes=[
+ {id:'friends',caption:'<b>→</b> September 2022 · <b>Y</b> rates 4% → 5%',title:'Two friends. Same £40. Same move.',sub:'Each lends £1,000 for £40 a year. One picks a 2-year bond, the other a 30-year bond. Then the market rate goes from 4% to 5%.',controls:{yld:true},maxReveal:1,draw:drawFriends,
+  side(){const p2=price(y,2), p30=price(y,30);
+    return card('Friend 1 · 2 years',gbp0(p2)+' <small>'+(Math.abs(p2-FACE)<0.5?'':sgn(p2-FACE))+'</small>',p2>=FACE-0.01?'hero':'bad')+card('Friend 2 · 30 years',gbp0(p30)+' <small>'+(Math.abs(p30-FACE)<0.5?'':sgn(p30-FACE))+'</small>',p30>=FACE-0.01?'hero':'bad')+card('Both pay','£40 <small>/ yr, locked</small>','gold')
+      +(reveal>=1?`<div class="callout"><b>22–27 September 2022:</b> rates on 30-year UK government bonds rose from under 4% to 5%. On 28 September the Bank of England stepped in.</div>`:'')
+      +`<div class="callout blue">The two friends and their bonds are illustrative: £1,000 each, a 4% coupon, the same 1% move.</div>`;}},
+ {id:'seesaw',caption:'<b>Y</b> — the market rate 4% → 5% (then 3%). Prediction first',title:'The seesaw',sub:'A new buyer compares your £40 to what a new £1,000 bond pays now. If new bonds pay more, nobody pays £1,000 for yours. The price falls until the £40 is competitive again.',controls:{yld:true,mat:true},maxReveal:0,draw:drawSeesaw,
+  side(){const p=price(); return card('Market rate',pct(y),'bad')+card('New bond pays',gbp0(FACE*y)+' <small>/ yr</small>','')+card('Your bond pays','£40 <small>/ yr</small>','gold')+card('Your bond’s price',gbp(p),p>=FACE-0.01?'hero':'bad')+`<div class="callout blue"><b>Before you drag 4 → 5:</b> the coupon is locked at £40. What happens to the price — and roughly how much?</div>`;}},
+ {id:'ladder',caption:'Every payment, valued today — <b>Y: 4% → 5%, the far bars shrink most</b>',title:'Why: price is every future payment, valued today',sub:'£40 next year is worth a little less than £40 today. £40 in ten years is worth a lot less. A higher rate shrinks every bar — and the far ones most.',controls:{yld:true,mat:true},maxReveal:0,draw:drawLadder,
+  side(){const f=flows(),p=price(); return card('Payments left',f.length,'')+card('Face + coupons, nominal',gbp0(f.reduce((s,x)=>s+x.cf,0)),'')+card('Worth today at '+pct(y),gbp(p),p>=FACE-0.01?'hero':'bad')+`<div class="callout"><b>Discounting.</b> That is the entire mechanism. The same maths as a pension projection run backwards.</div>`;}},
+ {id:'duration',caption:'Same move, four bonds — <b>Y</b> 4% → 5% → 3% · <b>→</b> sell or wait · <b>→</b> 2022',title:'Longer bond, bigger swing',sub:'A 30-year bond has 30 years of £40 to re-price. A 2-year bond has two. The rate move is identical; the damage is not.',controls:{yld:true},maxReveal:2,draw:drawDuration,
+  side(){
+    if(reveal>=1){const p30=price(y,30);
+      return card('Friend 2 needs the money — has to sell',gbp0(p30)+' <small>'+sgn(p30-FACE)+', for real</small>','bad')+card('Friend 1 waits to the end','£1,000 <small>back, plus every £40</small>','hero')
+        +(reveal>=2?`<div class="callout"><b>September 2022.</b> Some pension schemes had borrowed against long-dated government bonds. As prices fell they had to sell — which pushed prices down further. On 28 September the Bank of England stepped in.</div>`:'')
+        +`<div class="callout warn"><b>Not a ranking.</b> This is what happens to each — not what anyone should hold.</div>`;}
+    return [2,5,10,30].map(nn=>card(nn+'-year'+(nn===2?' · Friend 1':nn===30?' · Friend 2':'')+', at '+pct(y),((price(y,nn)-FACE)/FACE*100).toFixed(1)+'%',price(y,nn)>=FACE-0.01?'hero':'bad')).join('')+`<div class="callout warn"><b>Not a ranking.</b> Longer is not worse or better — it is more sensitive, in both directions.</div>`;}},
+ {id:'payoff',caption:'The payoff — <b>→</b> reveals each line',title:'What you actually own: a promise, priced daily.',sub:'Four things about a bond that the word "safe" hides.',controls:{},maxReveal:5,draw:drawPayoff,
+  side(){return card('Friend 1 · 2-year, 4% → 5%',sgn(price(.05,2)-FACE),'bad')+card('Friend 2 · 30-year, 4% → 5%',sgn(price(.05,30)-FACE),'bad')+`<div class="callout warn"><b>Not advice.</b> An illustrative bond — no issuer, no fund, no rate presented as current. How this applies to anything anyone holds is a question for a regulated adviser.</div>`;}}
+];
+function render(){
+  const sc=scenes[scene]; $('title').textContent=sc.title; $('sub').textContent=sc.sub; $('build').textContent=BUILD;
+  $('scnCount').textContent='SCENE '+(scene+1)+' / '+scenes.length; $('scnCaption').innerHTML=sc.caption; $('side').innerHTML=sc.side();
+  ['yld','mat'].forEach(k=>$('ctl-'+k).classList.toggle('hidden',!sc.controls[k]));
+  document.querySelectorAll('#matSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.n===n));
+  $('st-cpn').textContent='£40 / yr'; $('st-yld').textContent=pct(y); $('st-px').textContent=gbp(price());
+  const svg=$('viz'); while(svg.firstChild) svg.removeChild(svg.firstChild); sc.draw(svg);
+}
+function goto(k){scene=Math.max(0,Math.min(scenes.length-1,k)); reveal=0; gen++; sweepTo=null; render();}
+function advance(){const sc=scenes[scene]; if(reveal<sc.maxReveal){reveal++;
+    if(sc.id==='duration'&&reveal===1&&yPct()!==5) sweep(5,1200);   // "sells now" needs the 5% price on screen
+    render(); return;} goto(scene+1);}
+function setFill(r){r.style.setProperty('--fill',(100*(r.value-r.min)/(r.max-r.min))+'%');}
+function setMat(k){if(!scenes[scene].controls.mat) return; n=k; render();}
+function setY(v){y=v/100; $('yldRange').value=v; $('yldVal').textContent=v.toFixed(2)+'%'; setFill($('yldRange'));}
+function resetScene(){gen++; sweepTo=null; n=10; setY(4); reveal=0; render();}
+$('yldRange').addEventListener('input',e=>{y=+e.target.value/100; setFill(e.target); $('yldVal').textContent=(+e.target.value).toFixed(2)+'%'; render();});
+
+/* ---------- keyboard rate sweeps (b02) ----------
+   Y used to .focus() the slider, which never worked: the keydown handler
+   blurs any focused input on every keypress, so the next key changed the
+   scene instead. Now each Y press sweeps the rate smoothly to the next value
+   the script asks for, at the same pace every take. A press during a sweep
+   moves on from where it was heading, so a double-press still follows the
+   order. Mouse dragging still works exactly as before. */
+const STOPS={friends:[5,4],seesaw:[5,3,4],ladder:[5,4],duration:[5,3,4]};
+const yPct=()=>Math.round(y*10000)/100;                       // 0.05 → 5, not 5.000000000000001
+const nextStop=(stops,cur)=>{const i=stops.indexOf(cur); return i<0?stops[0]:stops[(i+1)%stops.length];};
+let sweepTok=0, sweepTo=null;
+function sweep(to,ms){
+  const from=yPct(), tok=++sweepTok; sweepTo=null; if(from===to) return; sweepTo=to;
+  const el=$('yldRange'), g=gen, t0=performance.now(); el.step='any';  // smooth thumb while sweeping
+  (function step(now){
+    if(g!==gen||tok!==sweepTok){if(tok===sweepTok) sweepTo=null; el.step='0.25'; return;}   // scene change, reset or a newer press
+    const p=Math.min(1,(now-t0)/ms), e=p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+    setY(Math.round((from+(to-from)*e)*100)/100); render();
+    if(p<1) requestAnimationFrame(step); else {sweepTo=null; el.step='0.25';}
+  })(t0);
+}
+document.querySelectorAll('#matSeg button').forEach(b=>b.addEventListener('click',()=>setMat(+b.dataset.n)));
+$('prev').addEventListener('click',()=>goto(scene-1)); $('next').addEventListener('click',advance);
+document.addEventListener('keydown',e=>{
+  const a=document.activeElement; if(a&&(a.tagName==='INPUT'||a.tagName==='BUTTON')) a.blur();
+  const k=e.key.toLowerCase();
+  if(e.key==='ArrowRight'){e.preventDefault(); advance();} if(e.key==='ArrowLeft'){e.preventDefault(); goto(scene-1);}
+  if(!scenes[scene].controls.mat && /^[1-5]$/.test(e.key)) goto(+e.key-1);
+  if(scenes[scene].controls.mat){ if(e.key==='2') setMat(2); if(e.key==='5') setMat(5); if(e.key==='0') setMat(10); if(e.key==='3') setMat(30); if(e.key==='1') goto(0); if(e.key==='4') goto(3); }
+  if(k==='y'&&scenes[scene].controls.yld){const id=scenes[scene].id; sweep(nextStop(STOPS[id]||[5,4],sweepTo??yPct()), id==='friends'?2400:2000);}
+  if(k==='r') resetScene(); if(k==='p') goto(4);
+});
+setFill($('yldRange')); goto(0);
+function sanity(){const rows=[]; for(const nn of [2,5,10,30]){rows.push('| '+nn+'y | '+[.03,.04,.05,.06].map(yy=>gbp(price(yy,nn))).join(' | ')+' | '+((price(.05,nn)-FACE)/FACE*100).toFixed(1)+'% |');}
+  const out=['SANITY — £1,000 face, 4% annual coupon','| maturity | @3% | @4% | @5% | @6% | 4→5% |','|---|---|---|---|---|---|',...rows].join('\n'); console.log(out); return out;}
+window.sanity=sanity;
+</script>
+</body>
+</html>
