@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The AI capex problem — Money Internals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0B0E13; --panel:#121821; --panel2:#171F2A; --line:#232A33; --line2:#2C3540;
+  --txt:#E6EAF0; --mut:#8B94A3; --mut2:#5C6675;
+  --bid:#2EBD85; --ask:#F6465D; --gold:#E8B33C; --blue:#4A9EDA;
+  --accent:#2EBD85;
+  --sans:'Inter',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+  --r:10px;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{height:100%}
+body{background:var(--bg); color:var(--txt); font-family:var(--sans); font-weight:500; display:flex; flex-direction:column; overflow:hidden}
+.tnum{font-variant-numeric:tabular-nums}
+.topbar{display:flex; align-items:center; gap:26px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel)}
+.brand .name{font-size:16px; letter-spacing:.3px}
+.brand .name b{color:var(--bid); font-weight:700}
+.ticker{font-family:var(--mono); font-size:12px; color:var(--mut); letter-spacing:2px}
+.ticker.year{color:var(--gold)}
+.stats{margin-left:auto; display:flex; gap:26px}
+.stat-h{display:flex; flex-direction:column; align-items:flex-end}
+.stat-h .k{font-size:10px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2)}
+.stat-h .v{font-family:var(--mono); font-size:17px; font-weight:700}
+#st-now{color:var(--blue)} #st-next{color:var(--gold)}
+.stage{flex:1; display:grid; grid-template-columns:1fr 360px; min-height:0; position:relative}
+.main{display:flex; flex-direction:column; padding:22px 26px 96px; min-width:0; min-height:0}
+.main h1{font-size:26px; font-weight:700; letter-spacing:-.3px}
+.main .sub{color:var(--mut); font-size:15px; margin-top:6px; line-height:1.45; max-width:70ch}
+.viz{flex:1; margin-top:14px; min-height:0; display:flex}
+.viz svg{width:100%; height:100%}
+.side{border-left:1px solid var(--line); background:var(--panel); padding:18px; display:flex; flex-direction:column; gap:12px; overflow-y:auto}
+.card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--r); padding:13px 16px}
+.card .k{font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:var(--mut2); margin-bottom:4px}
+.card .v{font-family:var(--mono); font-size:26px; font-weight:700; font-variant-numeric:tabular-nums}
+.card .v small{font-size:14px; color:var(--mut); font-weight:500}
+.card.hero{border-color:var(--bid)} .card.hero .v{color:var(--bid); font-size:31px}
+.card.bad{border-color:var(--ask)} .card.bad .v{color:var(--ask)}
+.card.gold{border-color:var(--gold)} .card.gold .v{color:var(--gold)}
+.card.blue{border-color:var(--blue)} .card.blue .v{color:var(--blue)}
+.callout{background:var(--panel2); border-left:3px solid var(--gold); border-radius:0 var(--r) var(--r) 0; padding:12px 15px; font-size:14.5px; line-height:1.5}
+.callout b{color:var(--gold)}
+.callout.warn{border-left-color:var(--ask)} .callout.warn b{color:var(--ask)}
+.callout.good{border-left-color:var(--bid)} .callout.good b{color:var(--bid)}
+.callout.blue{border-left-color:var(--blue)} .callout.blue b{color:var(--blue)}
+.corner{position:absolute; right:378px; bottom:14px; z-index:5; background:var(--panel2); border:1px solid var(--line2); border-radius:8px; padding:8px 14px; text-align:right; transition:transform .4s, border-color .4s}
+.corner .k{font-size:9px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2)}
+.corner .v{font-family:var(--mono); font-size:19px; font-weight:700; color:var(--gold); font-variant-numeric:tabular-nums}
+.corner.spot{transform:scale(1.35); transform-origin:bottom right; border-color:var(--gold)}
+.controls{display:flex; align-items:center; gap:22px; flex-wrap:wrap; padding:12px 26px; border-top:1px solid var(--line); background:var(--panel); min-height:55px}
+.ctl{display:flex; align-items:center; gap:12px}
+.ctl.hidden{display:none}
+.ctl .lbl{font-size:11px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2); white-space:nowrap}
+.ctl .val{font-family:var(--mono); font-size:16px; font-weight:700; min-width:80px}
+.ctl .val.gold{color:var(--gold)}
+.model{margin-left:auto; font-size:12px; color:var(--mut); white-space:nowrap}
+.model b{color:var(--gold); font-weight:700}
+input[type=range]{-webkit-appearance:none; appearance:none; width:260px; height:6px; border-radius:3px; background:linear-gradient(to right, var(--gold) var(--fill,0%), var(--line2) var(--fill,0%)); outline:none; cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:18px; height:18px; border-radius:50%; background:var(--txt); border:3px solid var(--gold); cursor:grab}
+input[type=range]:focus-visible{outline:2px solid var(--txt); outline-offset:3px}
+.stepper{display:grid; grid-template-columns:auto 1fr auto auto; align-items:center; gap:18px; padding:11px 20px; border-top:1px solid var(--line); background:var(--panel)}
+.scn-count{font-family:var(--mono); font-size:14px; color:var(--mut); white-space:nowrap}
+.scn-caption{font-size:15px} .scn-caption b{color:var(--accent)}
+.disclaimer{font-size:11px; color:var(--mut2); white-space:nowrap}
+.scn-nav{display:flex; gap:8px}
+.scn-nav button{font-family:var(--mono); font-size:13px; padding:7px 14px; border-radius:6px; border:1px solid var(--line2); background:var(--panel2); color:var(--mut); cursor:pointer}
+.scn-nav button:hover{border-color:var(--accent); color:var(--accent)}
+.build{position:absolute; left:26px; bottom:8px; font-family:var(--mono); font-size:10px; color:var(--mut2)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="name">MONEY <b>INTERNALS</b></span></div>
+  <span class="ticker">AI DATA-CENTRE CAPEX · THE SUPPLY CHAIN</span>
+  <span class="ticker year" id="st-asof"></span>
+  <div class="stats">
+    <div class="stat-h"><span class="k">The four, 2026 (guided)</span><span class="v tnum" id="st-now">—</span></div>
+    <div class="stat-h"><span class="k">The four, next year</span><span class="v tnum" id="st-next">—</span></div>
+    <div class="stat-h"><span class="k">Supplier X vs 2026</span><span class="v tnum" id="st-chg">—</span></div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="main">
+    <h1 id="title"></h1>
+    <div class="sub" id="sub"></div>
+    <div class="viz"><svg id="viz" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet"></svg></div>
+  </div>
+  <div class="side" id="side"></div>
+  <div class="corner" id="corner"><div class="k">Supplier X’s sales vs 2026</div><div class="v" id="cornerV">—</div></div>
+  <div class="build" id="build"></div>
+</div>
+
+<div class="controls">
+  <div class="ctl" id="ctl-g">
+    <span class="lbl">The four’s spending next year</span>
+    <input type="range" id="gRange" min="-30" max="80" step="0.1" value="0">
+    <span class="val gold tnum" id="gVal">+0%</span>
+  </div>
+  <span class="model">Supplier X is illustrative: <b>1%</b> of every extra dollar the four spend, plus <b>0.2%</b> of the total</span>
+</div>
+
+<div class="stepper">
+  <span class="scn-count" id="scnCount"></span>
+  <span class="scn-caption" id="scnCaption"></span>
+  <span class="disclaimer">Illustrative supplier · the four’s capex: company filings and guidance, July 2026 · not a forecast · educational — not advice</span>
+  <div class="scn-nav"><button id="prev">← Prev</button><button id="next">Next →</button></div>
+</div>
+
+<script>
+/* ============================================================
+   BUILD capex-b03 — "The AI capex problem" (arc #1, shows/himm-capex/)
+   capex-b02 (2026-10-13): scene 4's lower-left panel shows THE EXTRA (2026 vs next year)
+     instead of the four's total, so the shrinking growth is on screen; scene 3 labels say
+     which part is "every dollar" and which is "only when spending grows".
+   capex-b03 (2026-10-13): payoff line 4 says "next year", not "every year". 36.7% keeps
+     Supplier X flat for one year only; held for a second year it lifts sales to ~$6.4bn.
+   Key map:
+     → / Next  advance (in-scene reveals on scene 5)  ← back  1–5 jump
+     G  sweep the growth slider to the script's next value: +10% → 0% → +36.7% → +78.8%
+     Space  pause the hook loop   R  reset scene
+   Arithmetic (sanity()):
+     the four: 2025 $409.6bn → 2026 $732.5bn guided (+78.8%) → the extra = $322.9bn
+     Supplier X = 1% × the extra + 0.2% × the total → 2026 = $3.229bn + $1.465bn = $4.694bn
+     next year +10% → $2.344bn (−50.1%) · flat → $1.465bn (−68.8%) · −10% → $1.319bn (−71.9%)
+     growth that keeps Supplier X flat = +36.7% · challenge (2% of the extra) = +40.1%
+   ============================================================ */
+const BUILD='capex-b03', ASOF='JULY 2026';
+/* $bn. VERIFY every figure before recording: shows/himm-capex/fact-check.md */
+const CAPEX={
+  y2025:{Amazon:128, Alphabet:91.4, Microsoft:118, Meta:72.2},   // annual reports. Amazon = cash capex, Microsoft = calendar 2025 incl. finance leases (⚠️ basis)
+  y2026:{Amazon:220, Alphabet:200, Microsoft:175, Meta:137.5}    // guidance, late July 2026: ~220 · 195–205 · ~175 (calendar, after the accounting change) · 130–145
+};
+const GUIDE={Amazon:'~$220bn', Alphabet:'$195–205bn', Microsoft:'~$175bn', Meta:'$130–145bn'};
+const SHARE_EXTRA=0.01, SHARE_TOTAL=0.002;
+const ORDER=['Amazon','Alphabet','Microsoft','Meta'];
+const COL={Amazon:'#2EBD85', Alphabet:'#E8B33C', Microsoft:'#4A9EDA', Meta:'#A98BEA'};
+
+const $=id=>document.getElementById(id);
+const C={panel:'#171F2A',line:'#232A33',line2:'#2C3540',txt:'#E6EAF0',mut:'#8B94A3',mut2:'#5C6675',bid:'#2EBD85',ask:'#F6465D',gold:'#E8B33C',blue:'#4A9EDA',ink:'#0B0E13'};
+const NS='http://www.w3.org/2000/svg';
+const svgEl=(t,a)=>{const e=document.createElementNS(NS,t); for(const k in a) e.setAttribute(k,a[k]); return e;};
+function txt(svg,x,y,s,size=14,fill=C.txt,anchor='start',weight=500,mono=false){const t=svgEl('text',{x,y,'font-size':size,fill,'text-anchor':anchor,'font-weight':weight,'font-family':mono?"'JetBrains Mono',monospace":"'Inter',sans-serif"}); t.textContent=s; svg.appendChild(t); return t;}
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const ease=p=>p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+const sum=o=>Object.values(o).reduce((a,b)=>a+b,0);
+const bnBig=v=>'$'+Math.round(v).toLocaleString('en-GB')+'bn';
+const bnSmall=v=>'$'+v.toFixed(2)+'bn';
+const sgn=(x,d=0)=>Math.abs(x)<0.005?'0%':(x>0?'+':'−')+Math.abs(x*100).toFixed(d)+'%';
+const gFmt=x=>{const v=Math.round(x*1000)/10; return v===0?'+0%':(v>0?'+':'−')+(Number.isInteger(v)?Math.abs(v):Math.abs(v).toFixed(1))+'%';};
+
+/* ---------- engine ---------- */
+const T25=sum(CAPEX.y2025), T26=sum(CAPEX.y2026);
+function supplier(prev,cur,ex=SHARE_EXTRA,base=SHARE_TOTAL){const extra=Math.max(0,cur-prev); return {extra,fromExtra:ex*extra,fromTotal:base*cur,sales:ex*extra+base*cur};}
+const S26=supplier(T25,T26);
+function nextYear(gr){const spend=T26*(1+gr); const s=supplier(T26,spend); return {...s,spend,chg:s.sales/S26.sales-1};}
+function flatGrowth(ex=SHARE_EXTRA,base=SHARE_TOTAL){const s26=supplier(T25,T26,ex,base).sales; return (s26-base*T26)/(ex*T26+base*T26);}
+
+/* ---------- state ---------- */
+let g=0, shown=false, gStep=0;
+let scene=0, reveal=0, gen=0, hookT=0, paused=false;
+
+/* ---------- drawing ---------- */
+function boxed(svg,x,y,s,size,fill,anchor){const t=txt(svg,x,y,s,size,fill,anchor,700,true); const b=t.getBBox(); svg.insertBefore(svgEl('rect',{x:b.x-7,y:b.y-4,width:b.width+14,height:b.height+8,rx:5,fill:C.panel,stroke:fill,'stroke-width':1}),t); return t;}
+function frame(svg,x,y,w,h){svg.appendChild(svgEl('rect',{x,y,width:w,height:h,rx:8,fill:C.panel,stroke:C.line}));}
+function bar(svg,x,base,w,h,fill,op=.9){if(h<=0) return; svg.appendChild(svgEl('rect',{x,y:base-h,width:w,height:h,rx:4,fill,opacity:op}));}
+function pairPanel(svg,x,y,w,h,title,a,b,maxV,fmt,colA,colB,f,labA,labB,badge,badgeCol){
+  frame(svg,x,y,w,h); txt(svg,x+18,y+28,title,12,C.mut2,'start',700,true);
+  const base=y+h-48, sc=(h-130)/maxV, bw=120, xa=x+w/2-bw-24, xb=x+w/2+24;
+  bar(svg,xa,base,bw,a*sc,colA); txt(svg,xa+bw/2,base-a*sc-12,fmt(a),18,C.txt,'middle',700,true);
+  bar(svg,xb,base,bw,b*sc*f,colB); if(f>=1) txt(svg,xb+bw/2,base-b*sc-12,fmt(b),18,colB,'middle',700,true);
+  svg.appendChild(svgEl('line',{x1:x+24,y1:base,x2:x+w-24,y2:base,stroke:C.line2}));
+  txt(svg,xa+bw/2,base+24,labA,13,C.mut,'middle',700,true); txt(svg,xb+bw/2,base+24,labB,13,C.mut,'middle',700,true);
+  if(f>=1&&badge) txt(svg,x+w-24,y+64,badge,38,badgeCol,'end',700,true);
+}
+function drawHook(svg){
+  const p=(hookT%150)/150, f=ease(clamp((p-.06)/.36,0,1)), N=nextYear(.10);
+  pairPanel(svg,40,10,445,450,'THE FOUR — DATA-CENTRE SPENDING',T26,N.spend,900,bnBig,C.mut2,C.bid,f,'2026','NEXT YEAR',sgn(.10),C.bid);
+  pairPanel(svg,515,10,445,450,'SUPPLIER X — SALES (ILLUSTRATIVE)',S26.sales,N.sales,5.4,bnSmall,C.mut2,C.ask,f,'2026','NEXT YEAR',sgn(N.chg),C.ask);
+  if(f>=1&&p>.5){svg.appendChild(svgEl('rect',{x:230,y:482,width:540,height:54,rx:10,fill:C.panel,stroke:C.gold,'stroke-width':1.5}));
+    txt(svg,500,517,'SPENDING +10% · SALES −50%',24,C.gold,'middle',700,true);}
+  return f;
+}
+function drawMoney(svg){
+  frame(svg,40,10,920,490); txt(svg,62,40,'DATA-CENTRE CAPEX OF THE FOUR BIGGEST BUYERS ($bn)',12,C.mut2,'start',700,true);
+  const base=452, sc=360/800;
+  [['2025',CAPEX.y2025,210],['2026 (guided)',CAPEX.y2026,630]].forEach(([yr,o,x])=>{
+    let y=base; ORDER.forEach(k=>{const h=o[k]*sc; y-=h; svg.appendChild(svgEl('rect',{x,y,width:170,height:Math.max(0,h-3),rx:4,fill:COL[k],opacity:.88})); if(h>24) txt(svg,x+85,y+h/2+5,k+'  '+Math.round(o[k]),13,C.ink,'middle',700,true);});
+    txt(svg,x+85,y-14,bnBig(sum(o)),22,C.txt,'middle',700,true);
+    txt(svg,x+85,base+26,yr,13,C.mut,'middle',700,true);
+  });
+  svg.appendChild(svgEl('line',{x1:400,y1:300,x2:600,y2:230,stroke:C.bid,'stroke-width':2.5}));
+  svg.appendChild(svgEl('polygon',{points:'600,230 586,230 594,242',fill:C.bid}));
+  txt(svg,500,236,sgn(T26/T25-1),30,C.bid,'middle',700,true);
+  txt(svg,500,530,'2025: annual reports · 2026: midpoint of each company’s guidance, late July 2026 · Microsoft: calendar year, after its July 2026 accounting change',10.5,C.mut2,'middle',500,true);
+}
+function drawRule(svg){
+  frame(svg,40,10,445,490); txt(svg,58,40,'THE FOUR ($bn)',12,C.mut2,'start',700,true);
+  const base=440, sc=330/800, ext=T26-T25;
+  bar(svg,110,base,120,T25*sc,C.mut2); txt(svg,170,base-T25*sc-12,bnBig(T25),18,C.txt,'middle',700,true); txt(svg,170,base+26,'2025',13,C.mut,'middle',700,true);
+  bar(svg,290,base,120,T25*sc,C.mut2); bar(svg,290,base-T25*sc,120,ext*sc,C.gold);
+  txt(svg,350,base-T26*sc-12,bnBig(T26),18,C.txt,'middle',700,true); txt(svg,350,base+26,'2026',13,C.mut,'middle',700,true);
+  txt(svg,350,base-T25*sc-ext*sc/2-4,'THE EXTRA',13,C.ink,'middle',700,true); txt(svg,350,base-T25*sc-ext*sc/2+14,bnBig(ext),13,C.ink,'middle',700,true);
+  svg.appendChild(svgEl('line',{x1:60,y1:base,x2:465,y2:base,stroke:C.line2}));
+  frame(svg,515,10,445,490); txt(svg,533,40,'SUPPLIER X — 2026 SALES (ILLUSTRATIVE)',12,C.mut2,'start',700,true);
+  const sb=440, ss=330/5.4, bx=560;
+  bar(svg,bx,sb,130,S26.fromTotal*ss,C.blue); bar(svg,bx,sb-S26.fromTotal*ss,130,S26.fromExtra*ss,C.gold);
+  txt(svg,bx+65,sb-S26.sales*ss-12,bnSmall(S26.sales),18,C.txt,'middle',700,true);
+  const yE=sb-S26.fromTotal*ss-S26.fromExtra*ss/2, yT=sb-S26.fromTotal*ss/2;
+  txt(svg,712,yE-16,'1% of the extra',14,C.gold,'start',700); txt(svg,712,yE+6,bnBig(ext)+' → '+bnSmall(S26.fromExtra),14,C.gold,'start',700,true); txt(svg,712,yE+26,'only when spending grows',12,C.mut,'start',500);
+  txt(svg,712,yT-16,'0.2% of the total',14,C.blue,'start',700); txt(svg,712,yT+6,bnBig(T26)+' → '+bnSmall(S26.fromTotal),14,C.blue,'start',700,true); txt(svg,712,yT+26,'a slice of every dollar',12,C.mut,'start',500);
+  svg.appendChild(svgEl('line',{x1:535,y1:sb,x2:940,y2:sb,stroke:C.line2}));
+  txt(svg,bx+65,sb+26,'2026',13,C.mut,'middle',700,true);
+}
+function drawPredict(svg){
+  const N=nextYear(g), X0=110, X1=930, Y0=56, Y1=330, gmin=-.3, gmax=.8, cmin=-.9, cmax=.9;
+  const px=v=>X0+(X1-X0)*(v-gmin)/(gmax-gmin), py=c=>Y1-(Y1-Y0)*(c-cmin)/(cmax-cmin);
+  frame(svg,40,6,920,360); txt(svg,60,34,'SUPPLIER X’S SALES vs 2026 — FOR EACH GROWTH RATE OF THE FOUR’S SPENDING',12,C.mut2,'start',700,true);
+  svg.appendChild(svgEl('line',{x1:X0,y1:py(0),x2:X1,y2:py(0),stroke:C.line2,'stroke-width':1.5}));
+  txt(svg,X0-10,py(0)+4,'0%',11,C.mut2,'end',700,true); txt(svg,X0-10,py(.5)+4,'+50%',11,C.mut2,'end',700,true); txt(svg,X0-10,py(-.5)+4,'−50%',11,C.mut2,'end',700,true);
+  [-.2,0,.2,.4,.6,.8].forEach(v=>txt(svg,px(v),Y1+22,v===0?'0%':gFmt(v),11,C.mut2,'middle',700,true));
+  txt(svg,X0+8,py(0)-8,'same sales as 2026',11,C.mut,'start',700,true);
+  if(shown){
+    const pts=[]; for(let v=gmin; v<=gmax+1e-9; v+=.005) pts.push(px(v)+','+py(nextYear(v).chg));
+    svg.appendChild(svgEl('polyline',{points:pts.join(' '),fill:'none',stroke:C.gold,'stroke-width':3}));
+    const gF=flatGrowth();
+    svg.appendChild(svgEl('line',{x1:px(gF),y1:Y0,x2:px(gF),y2:Y1,stroke:C.bid,'stroke-dasharray':'4 5'}));
+    boxed(svg,px(gF)+10,Y0+16,'flat at '+gFmt(gF),12,C.bid,'start');
+    svg.appendChild(svgEl('line',{x1:px(g),y1:Y0,x2:px(g),y2:Y1,stroke:C.txt,opacity:.45}));
+    svg.appendChild(svgEl('circle',{cx:px(g),cy:py(N.chg),r:7,fill:N.chg<-.005?C.ask:C.bid}));
+    boxed(svg,px(g)+(g>.45?-16:16),py(N.chg)+(N.chg>.55?30:N.chg<-.6?-18:34),'spending '+gFmt(g)+' → sales '+sgn(N.chg),14,N.chg<-.005?C.ask:C.bid,g>.45?'end':'start');
+  } else txt(svg,500,py(0)-30,'?',90,C.gold,'middle',700,true);
+  pairMini(svg,40,382,445,150,'THE EXTRA — HOW MUCH SPENDING GREW',T26-T25,N.extra,600,bnBig,shown);
+  pairMini(svg,515,382,445,150,'SUPPLIER X',S26.sales,N.sales,9,bnSmall,shown);
+}
+function pairMini(svg,x,y,w,h,title,a,b,maxV,fmt,show){
+  frame(svg,x,y,w,h); txt(svg,x+18,y+26,title,12,C.mut2,'start',700,true);
+  const lx=x+130, lw=w-230, sc=lw/maxV;
+  [[ '2026',a,C.mut2,y+56],['NEXT YEAR',b,show?(b/a-1<-.005?C.ask:C.bid):C.line2,y+104]].forEach(([l,v,col,yy],i)=>{
+    txt(svg,x+18,yy+5,l,12,C.mut,'start',700,true);
+    if(i===1&&!show){txt(svg,lx,yy+6,'?',18,C.gold,'start',700,true); return;}
+    svg.appendChild(svgEl('rect',{x:lx,y:yy-13,width:Math.max(2,v*sc),height:26,rx:4,fill:col,opacity:.9}));
+    txt(svg,lx+Math.max(2,v*sc)+10,yy+6,fmt(v),15,i===1?col:C.txt,'start',700,true);
+  });
+}
+function drawPayoff(svg){
+  const gF=flatGrowth();
+  txt(svg,500,64,'To stand still: '+gFmt(gF)+' next year',44,C.gold,'middle',700,true);
+  txt(svg,500,98,'SUPPLIER X (ILLUSTRATIVE) · 1% OF THE EXTRA + 0.2% OF THE TOTAL · THE FOUR AS OF '+ASOF,12,C.mut2,'middle',700,true);
+  const N=nextYear(.10);
+  const L=[['Four buyers set the budget','about '+bnBig(T26)+' guided for 2026 — much of the chain is paid out of it',C.blue],
+    ['Much of the chain is paid for growth, not size','part of it — new factories, lines, power — is only needed when spending grows',C.gold],
+    ['Spend 10% more, and Supplier X’s sales halve','the extra shrinks from '+bnBig(T26-T25)+' to '+bnBig(N.extra),C.ask],
+    ['To keep Supplier X flat, spending must grow '+gFmt(gF)+' next year','so the whole chain moves on what the four say about next year',C.bid]];
+  L.forEach((l,i)=>{if(reveal<=i) return; const y=130+i*88; svg.appendChild(svgEl('rect',{x:90,y,width:820,height:68,rx:10,fill:C.panel,stroke:l[2],'stroke-width':1.5})); txt(svg,120,y+30,(i+1)+'.  '+l[0],17,l[2],'start',700); txt(svg,120,y+53,l[1],14,C.mut,'start');});
+  if(reveal>=5) txt(svg,500,520,'CHALLENGE — Supplier X gets 2% of the extra, not 1%. What growth keeps it flat? Comments.',15,C.txt,'middle',700,true);
+}
+
+const card=(k,v,cls='')=>`<div class="card ${cls}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+const scenes=[
+ {id:'hook',caption:'They spend more. <b>Watch the supplier’s sales.</b>',title:'The AI capex problem.',sub:'Next year the four biggest buyers of data centres spend 10% more. An illustrative supplier selling to them sees its sales halve.',slider:false,maxReveal:0,draw:drawHook,
+  side(){const N=nextYear(.10); return card('The four, 2026 (guided)',bnBig(T26),'blue')+card('The four, next year (+10%)',bnBig(N.spend),'gold')+card('Supplier X, 2026',bnSmall(S26.sales),'')+card('Supplier X, next year',bnSmall(N.sales),'bad')+`<div class="callout"><b>Supplier X is illustrative.</b> It gets 1% of every extra dollar the four spend, plus 0.2% of the total.</div>`;}},
+ {id:'money',caption:'Who’s paying — <b>four companies</b>',title:'Four buyers set the budget',sub:'Amazon, Alphabet, Microsoft and Meta. Much of the data-centre supply chain is paid out of what these four spend.',slider:false,maxReveal:0,draw:drawMoney,
+  side(){return ORDER.map(k=>card(k+' — 2026 guidance',GUIDE[k],'')).join('')+`<div class="callout blue"><b>As of late July 2026.</b> Their next results, in late October, can move every one of these numbers.</div>`;}},
+ {id:'rule',caption:'Supplier X’s rule — <b>the extra, and the total</b>',title:'Paid for growth, not size',sub:'Part of what the chain sells goes into every dollar they spend. Part of it — new factories, production lines, power — is only needed when spending grows, so it’s paid out of the extra.',slider:false,maxReveal:0,draw:drawRule,
+  side(){return card('The extra (2026 − 2025)',bnBig(T26-T25),'gold')+card('1% of the extra',bnSmall(S26.fromExtra),'gold')+card('0.2% of the total',bnSmall(S26.fromTotal),'blue')+card('Supplier X, 2026',bnSmall(S26.sales),'hero')+`<div class="callout"><b>Two kinds of sales:</b> a small slice of every dollar they spend, and a bigger slice of the growth.</div>`;}},
+ {id:'predict',caption:'<b>G</b> — move next year’s spending',title:'Spend 10% more next year',sub:'The four keep growing — just more slowly than this year. What happens to Supplier X?',slider:true,maxReveal:0,draw:drawPredict,
+  side(){const N=nextYear(g); return card('The four, next year',bnBig(N.spend)+` <small>${gFmt(g)}</small>`,'gold')+card('The extra (the growth)',shown?bnBig(N.extra):'?','')+card('Supplier X, next year',shown?bnSmall(N.sales):'?','')+card('vs 2026',shown?sgn(N.chg):'?',shown?(N.chg<-.005?'bad':'hero'):'gold')+`<div class="callout"><b>Prediction:</b> the four spend 10% more next year. What happens to Supplier X’s sales?</div>`;}},
+ {id:'payoff',caption:'The payoff — <b>→</b> reveals each line',title:'Paid for growth, not size.',sub:'A supplier paid out of the extra dollars needs the spending to keep growing just to stand still.',slider:false,maxReveal:5,draw:drawPayoff,
+  side(){const gF=flatGrowth(); return card('To stand still',gFmt(gF)+' <small>next year</small>','hero')+card('Supplier X if the four spend +10%',sgn(nextYear(.10).chg),'bad')+`<div class="callout warn"><b>Not advice.</b> Supplier X is illustrative — it isn’t modelled on any real company. This is how a supply chain can work, not a forecast for any company.</div>`;}}
+];
+
+/* ---------- render ---------- */
+function render(){
+  const sc=scenes[scene]; $('title').textContent=sc.title; $('sub').textContent=sc.sub; $('st-asof').textContent='AS OF '+ASOF; $('build').textContent=BUILD;
+  $('scnCount').textContent='SCENE '+(scene+1)+' / '+scenes.length; $('scnCaption').innerHTML=sc.caption; $('side').innerHTML=sc.side();
+  $('ctl-g').classList.toggle('hidden',!sc.slider);
+  const svg=$('viz'); while(svg.firstChild) svg.removeChild(svg.firstChild);
+  const r=sc.draw(svg);
+  const gNow=sc.id==='predict'?g:.10, N=nextYear(gNow), known=sc.id==='payoff'||(sc.id==='hook'&&r>=1)||(sc.id==='predict'&&shown);
+  $('st-now').textContent=bnBig(T26);
+  $('st-next').textContent=(sc.id==='money'||sc.id==='rule')?'—':bnBig(N.spend);
+  $('st-chg').textContent=known?sgn(N.chg):'—'; $('st-chg').style.color=known?(N.chg<-.005?'var(--ask)':'var(--bid)'):'var(--mut)';
+  $('cornerV').textContent=known?sgn(N.chg):(sc.id==='predict'?'?':'—'); $('cornerV').style.color=known&&N.chg<-.005?'var(--ask)':'var(--gold)';
+  $('corner').classList.toggle('spot',sc.id==='payoff');
+}
+setInterval(()=>{if(paused||scenes[scene].id!=='hook') return; hookT++; render();},50);
+
+/* ---------- events ---------- */
+function goto(n){scene=Math.max(0,Math.min(scenes.length-1,n)); reveal=0; gen++; sweepTok++; if(scenes[scene].id==='hook') hookT=0; if(scenes[scene].id==='predict'){setG(0); shown=false; gStep=0;} render();}
+function advance(){const sc=scenes[scene]; if(reveal<sc.maxReveal){reveal++; render(); return;} goto(scene+1);}
+function setFill(r){r.style.setProperty('--fill',(100*(r.value-r.min)/(r.max-r.min))+'%');}
+function setG(v){const r=$('gRange'); r.value=v; g=+r.value/100; setFill(r); $('gVal').textContent=gFmt(g);}
+function resetScene(){sweepTok++; setG(0); shown=false; gStep=0; reveal=0; hookT=0; render();}
+$('gRange').addEventListener('input',e=>{g=+e.target.value/100; setFill(e.target); $('gVal').textContent=gFmt(g); if(scenes[scene].id==='predict') shown=true; render();});
+$('prev').addEventListener('click',()=>goto(scene-1)); $('next').addEventListener('click',advance);
+/* ---------- keyboard slider sweep ----------
+   Same pattern as the *-b02 builds: each G press sweeps the real slider to the
+   next value the script asks for (G_SEQ), at the same pace every take, firing
+   its own input event, so the page updates exactly as if it were dragged.
+   A press during a sweep moves on from where it was. R or a scene change
+   stops a sweep. Mouse dragging still works. */
+const G_SEQ=[10,0,36.7,78.8], G_MS=2200, G_GRAIN=0.1;
+let sweepTok=0;
+function sweepG(){
+  if(!scenes[scene].slider) return;
+  const el=$('gRange'), to=G_SEQ[gStep%G_SEQ.length]; gStep++;
+  const from=+el.value, tok=++sweepTok, gg=gen; if(Math.abs(from-to)<1e-9) return;
+  const t0=performance.now(), put=v=>{if(+el.value===v) return; el.value=v; el.dispatchEvent(new Event('input',{bubbles:true}));};
+  (function f(now){
+    if(gg!==gen||tok!==sweepTok) return;
+    const p=Math.min(1,(now-t0)/G_MS), e=ease(p);
+    put(p<1?Math.round((from+(to-from)*e)/G_GRAIN)*G_GRAIN:to);
+    if(p<1) requestAnimationFrame(f);
+  })(t0);
+}
+document.addEventListener('keydown',e=>{
+  const a=document.activeElement; if(a&&(a.tagName==='INPUT'||a.tagName==='BUTTON')) a.blur();
+  const k=e.key.toLowerCase();
+  if(e.key==='ArrowRight'){e.preventDefault(); advance();} if(e.key==='ArrowLeft'){e.preventDefault(); goto(scene-1);}
+  if(/^[1-5]$/.test(e.key)) goto(+e.key-1);
+  if(k==='g') sweepG(); if(k==='r') resetScene();
+  if(e.key===' '){e.preventDefault(); paused=!paused;}
+});
+setG(0); goto(0);
+
+/* ---------- sanity ---------- */
+function sanity(){
+  const rows=[-.10,0,.05,.10,.20,flatGrowth(),.50,T26/T25-1].map(v=>{const N=nextYear(v); return `| ${gFmt(v)} | ${bnBig(N.spend)} | $${N.extra.toFixed(1)}bn | $${N.sales.toFixed(3)}bn | ${sgn(N.chg,1)} |`;});
+  const out=['SANITY — the four: 2025 $'+T25.toFixed(1)+'bn · 2026 $'+T26.toFixed(1)+'bn guided ('+sgn(T26/T25-1,1)+') · the extra $'+(T26-T25).toFixed(1)+'bn',
+    'Supplier X, 2026: $'+S26.fromExtra.toFixed(3)+'bn (1% of the extra) + $'+S26.fromTotal.toFixed(3)+'bn (0.2% of the total) = $'+S26.sales.toFixed(3)+'bn',
+    '| next year | the four | the extra | Supplier X | vs 2026 |','|---|---|---|---|---|',...rows,
+    'growth that keeps Supplier X flat: '+(flatGrowth()*100).toFixed(1)+'% · challenge (2% of the extra): '+(flatGrowth(.02)*100).toFixed(1)+'%'].join('\n');
+  console.log(out); return out;}
+window.sanity=sanity;
+</script>
+</body>
+</html>
