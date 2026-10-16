@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Why loss-making companies swing hardest — Money Internals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0B0E13; --panel:#121821; --panel2:#171F2A; --line:#232A33; --line2:#2C3540;
+  --txt:#E6EAF0; --mut:#8B94A3; --mut2:#5C6675;
+  --bid:#2EBD85; --ask:#F6465D; --gold:#E8B33C; --blue:#4A9EDA;
+  --accent:#2EBD85;
+  --sans:'Inter',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+  --r:10px;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{height:100%}
+body{background:var(--bg); color:var(--txt); font-family:var(--sans); font-weight:500; display:flex; flex-direction:column; overflow:hidden}
+.tnum{font-variant-numeric:tabular-nums}
+.topbar{display:flex; align-items:center; gap:26px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel)}
+.brand .name{font-size:16px; letter-spacing:.3px}
+.brand .name b{color:var(--bid); font-weight:700}
+.ticker{font-family:var(--mono); font-size:12px; color:var(--mut); letter-spacing:2px}
+.ticker.year{color:var(--gold)}
+.stats{margin-left:auto; display:flex; gap:26px}
+.stat-h{display:flex; flex-direction:column; align-items:flex-end}
+.stat-h .k{font-size:10px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2)}
+.stat-h .v{font-family:var(--mono); font-size:17px; font-weight:700}
+#st-s{color:var(--blue)} #st-f{color:var(--gold)}
+.stage{flex:1; display:grid; grid-template-columns:1fr 360px; min-height:0; position:relative}
+.main{display:flex; flex-direction:column; padding:22px 26px 96px; min-width:0; min-height:0}
+.main h1{font-size:26px; font-weight:700; letter-spacing:-.3px}
+.main .sub{color:var(--mut); font-size:15px; margin-top:6px; line-height:1.45; max-width:70ch}
+.viz{flex:1; margin-top:14px; min-height:0; display:flex}
+.viz svg{width:100%; height:100%}
+.side{border-left:1px solid var(--line); background:var(--panel); padding:18px; display:flex; flex-direction:column; gap:12px; overflow-y:auto}
+.card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--r); padding:13px 16px}
+.card .k{font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:var(--mut2); margin-bottom:4px}
+.card .v{font-family:var(--mono); font-size:26px; font-weight:700; font-variant-numeric:tabular-nums}
+.card .v small{font-size:14px; color:var(--mut); font-weight:500}
+.card.hero{border-color:var(--bid)} .card.hero .v{color:var(--bid); font-size:31px}
+.card.bad{border-color:var(--ask)} .card.bad .v{color:var(--ask)}
+.card.gold{border-color:var(--gold)} .card.gold .v{color:var(--gold)}
+.card.blue{border-color:var(--blue)} .card.blue .v{color:var(--blue)}
+.callout{background:var(--panel2); border-left:3px solid var(--gold); border-radius:0 var(--r) var(--r) 0; padding:12px 15px; font-size:14.5px; line-height:1.5}
+.callout b{color:var(--gold)}
+.callout.warn{border-left-color:var(--ask)} .callout.warn b{color:var(--ask)}
+.callout.good{border-left-color:var(--bid)} .callout.good b{color:var(--bid)}
+.callout.blue{border-left-color:var(--blue)} .callout.blue b{color:var(--blue)}
+.corner{position:absolute; right:378px; bottom:14px; z-index:5; background:var(--panel2); border:1px solid var(--line2); border-radius:8px; padding:8px 14px; text-align:right; transition:transform .4s, border-color .4s}
+.corner .k{font-size:9px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2)}
+.corner .v{font-family:var(--mono); font-size:19px; font-weight:700; color:var(--gold); font-variant-numeric:tabular-nums}
+.corner.spot{transform:scale(1.35); transform-origin:bottom right; border-color:var(--gold)}
+.controls{display:flex; align-items:center; gap:28px; flex-wrap:wrap; padding:12px 26px; border-top:1px solid var(--line); background:var(--panel); min-height:55px}
+.ctl{display:flex; align-items:center; gap:12px}
+.ctl.hidden{display:none}
+.ctl .lbl{font-size:11px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2); white-space:nowrap}
+.ctl .val{font-family:var(--mono); font-size:16px; font-weight:700; min-width:64px}
+.ctl .val.gold{color:var(--gold)} .ctl .val.blue{color:var(--blue)}
+.model{margin-left:auto; font-size:12px; color:var(--mut); white-space:nowrap}
+.model b{font-weight:700} .model .s{color:var(--blue)} .model .f{color:var(--gold)}
+input[type=range]{-webkit-appearance:none; appearance:none; width:220px; height:6px; border-radius:3px; background:linear-gradient(to right, var(--gold) var(--fill,0%), var(--line2) var(--fill,0%)); outline:none; cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:18px; height:18px; border-radius:50%; background:var(--txt); border:3px solid var(--gold); cursor:grab}
+input[type=range]:focus-visible{outline:2px solid var(--txt); outline-offset:3px}
+#hRange{background:linear-gradient(to right, var(--blue) var(--fill,0%), var(--line2) var(--fill,0%))} #hRange::-webkit-slider-thumb{border-color:var(--blue)}
+.stepper{display:grid; grid-template-columns:auto 1fr auto auto; align-items:center; gap:18px; padding:11px 20px; border-top:1px solid var(--line); background:var(--panel)}
+.scn-count{font-family:var(--mono); font-size:14px; color:var(--mut); white-space:nowrap}
+.scn-caption{font-size:15px} .scn-caption b{color:var(--accent)}
+.disclaimer{font-size:11px; color:var(--mut2); white-space:nowrap}
+.scn-nav{display:flex; gap:8px}
+.scn-nav button{font-family:var(--mono); font-size:13px; padding:7px 14px; border-radius:6px; border:1px solid var(--line2); background:var(--panel2); color:var(--mut); cursor:pointer}
+.scn-nav button:hover{border-color:var(--accent); color:var(--accent)}
+.build{position:absolute; left:26px; bottom:8px; font-family:var(--mono); font-size:10px; color:var(--mut2)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="name">MONEY <b>INTERNALS</b></span></div>
+  <span class="ticker">LOSS-MAKERS vs PROFITABLE · WHY THEY SWING</span>
+  <span class="ticker year">TWO ILLUSTRATIVE COMPANIES</span>
+  <div class="stats">
+    <div class="stat-h"><span class="k">Steady Co</span><span class="v tnum" id="st-s">—</span></div>
+    <div class="stat-h"><span class="k">Future Co</span><span class="v tnum" id="st-f">—</span></div>
+    <div class="stat-h"><span class="k">Return demanded · hopes</span><span class="v tnum" id="st-rh">—</span></div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="main">
+    <h1 id="title"></h1>
+    <div class="sub" id="sub"></div>
+    <div class="viz"><svg id="viz" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet"></svg></div>
+  </div>
+  <div class="side" id="side"></div>
+  <div class="corner" id="corner"><div class="k">Future Co vs today</div><div class="v" id="cornerV">—</div></div>
+  <div class="build" id="build"></div>
+</div>
+
+<div class="controls">
+  <div class="ctl" id="ctl-r">
+    <span class="lbl">Return investors demand</span>
+    <input type="range" id="rRange" min="4" max="12" step="0.1" value="8">
+    <span class="val gold tnum" id="rVal">8%</span>
+  </div>
+  <div class="ctl" id="ctl-h">
+    <span class="lbl">Hopes for the later profits</span>
+    <input type="range" id="hRange" min="-40" max="40" step="1" value="0">
+    <span class="val blue tnum" id="hVal">±0%</span>
+  </div>
+  <span class="model"><b class="s">Steady Co</b> earns £100,000 a year for 10 years · <b class="f">Future Co</b> loses £50,000 a year for 5 years, then earns £190,000 a year for 10</span>
+</div>
+
+<div class="stepper">
+  <span class="scn-count" id="scnCount"></span>
+  <span class="scn-caption" id="scnCaption"></span>
+  <span class="disclaimer">Illustrative companies · data: Ken French Data Library (CRSP), US stocks 1951–2026 · past patterns, not a forecast · educational — not advice</span>
+  <div class="scn-nav"><button id="prev">← Prev</button><button id="next">Next →</button></div>
+</div>
+
+<script>
+/* ============================================================
+   BUILD burn-b02 — "Why loss-making companies swing hardest" (arc #2, shows/cash-burn/)
+   Key map:
+     → / Next  advance (in-scene reveals on scene 5)  ← back  1–5 jump
+     G  sweep the slider to the script's next value — scene 3 rate 10% → 6% → 8%,
+        scene 4 hopes −20% → +20% → 0
+     D / U / N  scene 5 presets: bad mood (10%, −20%) · good mood (6%, +20%) · normal (8%, 0)
+     Space  pause the hook   R  reset scene
+   Model (sanity()):
+     value = each year's cash ÷ (1 + rate)^year, years 1–15; "hopes" scales the profits in years 6+
+     Money is modelled in units of £10,000 (UNIT) and shown in pounds (b02, 2026-10-15: bigger numbers)
+     Steady Co: +£100,000 a year, years 1–10 → £671,000 at 8% (60% of it in years 1–5)
+     Future Co: −£50,000 a year, years 1–5, then +£190,000 a year, years 6–15 → £668,100 at 8%
+     rates 8% → 10%: Steady −8.4% · Future −19.9%      rates 8% → 6%: +9.7% · +24.9%
+     hopes −20%: Steady −8.1% · Future −26.0%
+     bad mood (10%, −20%) → good mood (6%, +20%): Steady +40.8% · Future +167.3%
+     challenge: at 10%, hopes must rise +18.3% to put Future Co back at £668,100
+   Data (scene 1): Ken French "Portfolios Formed on E/P", value-weighted, month-end, 1951–2026.
+     Loss-makers = last annual earnings zero or below. notes/SERIES_WHY_STOCKS_SWING.md § 7b
+   ============================================================ */
+const BUILD='burn-b02', R0=0.08, UNIT=10000;
+const STEADY=[10,10,10,10,10,10,10,10,10,10,0,0,0,0,0];
+const FUTURE=[-5,-5,-5,-5,-5,19,19,19,19,19,19,19,19,19,19];
+/* [low year, loss-makers fell %, profitable fell %, loss-makers year after %, profitable year after %] */
+const SELLOFFS=[['1962',-28,-23,36,31],['1966',-38,-15,96,34],['1970',-64,-32,65,44],['1974',-65,-45,51,40],['1982',-35,-16,121,63],['1987',-35,-29,27,24],['1998',-24,-17,77,36],['2002',-78,-39,50,23],['2009',-62,-50,85,53],['2020',-23,-20,134,60],['2022',-24,-25,17,21]];
+
+const $=id=>document.getElementById(id);
+const C={panel:'#171F2A',line:'#232A33',line2:'#2C3540',txt:'#E6EAF0',mut:'#8B94A3',mut2:'#5C6675',bid:'#2EBD85',ask:'#F6465D',gold:'#E8B33C',blue:'#4A9EDA',ink:'#0B0E13'};
+const NS='http://www.w3.org/2000/svg';
+const svgEl=(t,a)=>{const e=document.createElementNS(NS,t); for(const k in a) e.setAttribute(k,a[k]); return e;};
+function txt(svg,x,y,s,size=14,fill=C.txt,anchor='start',weight=500,mono=false){const t=svgEl('text',{x,y,'font-size':size,fill,'text-anchor':anchor,'font-weight':weight,'font-family':mono?"'JetBrains Mono',monospace":"'Inter',sans-serif"}); t.textContent=s; svg.appendChild(t); return t;}
+function boxed(svg,x,y,s,size,fill,anchor){const t=txt(svg,x,y,s,size,fill,anchor,700,true); const b=t.getBBox(); svg.insertBefore(svgEl('rect',{x:b.x-7,y:b.y-4,width:b.width+14,height:b.height+8,rx:5,fill:C.panel,stroke:fill,'stroke-width':1}),t); return t;}
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const ease=p=>p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+const gbp=v=>(v<0?'−':'')+'£'+(Math.round(Math.abs(v)*UNIT/100)*100).toLocaleString('en-GB');
+const sgn=(x,d=0)=>Math.abs(x)<0.0005?'0%':(x>0?'+':'−')+Math.abs(x*100).toFixed(d)+'%';
+const rFmt=v=>(Math.round(v*1000)/10).toString().replace(/\.0$/,'')+'%';
+const hFmt=v=>Math.abs(v)<1e-9?'±0%':(v>0?'+':'−')+Math.round(Math.abs(v)*100)+'%';
+
+/* ---------- engine ---------- */
+function val(cfs,r,h=0){let v=0; cfs.forEach((cf,i)=>{const t=i+1; v+=cf*((t>=6&&cf>0)?(1+h):1)/Math.pow(1+r,t);}); return v;}
+const S0=val(STEADY,R0), F0=val(FUTURE,R0);
+function m(rr,hh){const s=val(STEADY,rr,hh), f=val(FUTURE,rr,hh); return {s,f,ds:s/S0-1,df:f/F0-1};}
+const BAD={r:.10,h:-.20}, GOOD={r:.06,h:.20};
+
+/* ---------- state ---------- */
+let r=R0, h=0, shownR=false, shownH=false, rStep=0, hStep=0;
+let scene=0, reveal=0, gen=0, hookT=0, paused=false;
+
+/* ---------- drawing ---------- */
+function frame(svg,x,y,w,h_){svg.appendChild(svgEl('rect',{x,y,width:w,height:h_,rx:8,fill:C.panel,stroke:C.line}));}
+function rect(svg,x,y,w,h_,fill,op=.9){if(h_<=0||w<=0) return; svg.appendChild(svgEl('rect',{x,y,width:w,height:h_,rx:3,fill,opacity:op}));}
+function drawHook(svg){
+  const p=(hookT%220)/220, n=Math.floor(clamp((p-.03)/.5,0,1)*SELLOFFS.length+1e-9), done=n>=SELLOFFS.length;
+  frame(svg,40,6,920,500);
+  txt(svg,60,34,'11 BIG SELL-OFFS SINCE 1951 — HOW FAR THEY FELL (below) · THE YEAR AFTER THE LOW (above)',12,C.mut2,'start',700,true);
+  const zero=290, k=1.5, x0=120, dx=76;
+  svg.appendChild(svgEl('line',{x1:70,y1:zero,x2:940,y2:zero,stroke:C.line2,'stroke-width':1.5}));
+  [100,50,-50].forEach(v=>{txt(svg,64,zero-v*k+4,(v>0?'+':'−')+Math.abs(v)+'%',10,C.mut2,'end',700,true); svg.appendChild(svgEl('line',{x1:70,y1:zero-v*k,x2:940,y2:zero-v*k,stroke:C.line,'stroke-dasharray':'2 6'}));});
+  SELLOFFS.slice(0,n).forEach(([yr,lf,pf,lb,pb],i)=>{
+    const cx=x0+i*dx;
+    rect(svg,cx-15,zero,13,-lf*k,C.ask); rect(svg,cx+2,zero,13,-pf*k,C.mut2);
+    rect(svg,cx-15,zero-lb*k,13,lb*k,C.bid); rect(svg,cx+2,zero-pb*k,13,pb*k,C.mut2);
+    txt(svg,cx,494,yr,12,C.mut,'middle',700,true);
+  });
+  rect(svg,700,48,12,12,C.ask); rect(svg,714,48,12,12,C.bid); txt(svg,732,58,'losing money',12,C.txt,'start',700,true);
+  rect(svg,714,68,12,12,C.mut2); txt(svg,732,78,'profitable',12,C.txt,'start',700,true);
+  if(done&&p>.6){svg.appendChild(svgEl('rect',{x:170,y:516,width:660,height:40,rx:10,fill:C.panel,stroke:C.gold,'stroke-width':1.5}));
+    txt(svg,500,543,'FELL FURTHER 10 OF 11 · BOUNCED HARDER 10 OF 11',20,C.gold,'middle',700,true);}
+  return done;
+}
+function timeline(svg,y,title,cfs,value,col){
+  frame(svg,40,y,920,238);
+  txt(svg,60,y+28,title,12,C.mut2,'start',700,true);
+  txt(svg,940,y+30,'WORTH TODAY '+gbp(value),16,col,'end',700,true);
+  const zero=y+160, k=5, x0=120, bw=40, gap=12;
+  rect(svg,x0-8,y+44,5*(bw+gap)+4,176,C.txt,.04);
+  txt(svg,x0-2,y+216,'FIRST 5 YEARS',10,C.mut2,'start',700,true);
+  svg.appendChild(svgEl('line',{x1:100,y1:zero,x2:930,y2:zero,stroke:C.line2}));
+  cfs.forEach((cf,i)=>{const x=x0+i*(bw+gap); if(cf>0) rect(svg,x,zero-cf*k,bw,cf*k,C.bid); else if(cf<0) rect(svg,x,zero,bw,-cf*k,C.ask);
+    txt(svg,x+bw/2,zero+(cf<0?-cf*k+16:16),String(i+1),10,C.mut2,'middle',500,true);});
+  return {zero,k,x0,bw,gap};
+}
+function drawCompanies(svg){
+  const a=timeline(svg,6,'STEADY CO — EARNS £100,000 A YEAR FOR 10 YEARS',STEADY,S0,C.blue);
+  txt(svg,a.x0+2.5*(a.bw+a.gap),a.zero-10*a.k-10,'£100,000 a year',13,C.bid,'middle',700,true);
+  const b=timeline(svg,262,'FUTURE CO — LOSES £50,000 A YEAR FOR 5 YEARS, THEN EARNS £190,000 A YEAR FOR 10',FUTURE,F0,C.gold);
+  txt(svg,b.x0+2.5*(b.bw+b.gap),b.zero-14,'−£50,000 a year',13,C.ask,'middle',700,true);
+  txt(svg,b.x0+10*(b.bw+b.gap)-6,b.zero-19*b.k-10,'£190,000 a year',13,C.bid,'middle',700,true);
+  txt(svg,500,524,'Both are valued at a return of 8% a year — so today they’re worth about the same: £670,000.',14,C.txt,'middle',700);
+}
+function curvesChart(svg,title,xmin,xmax,ymin,ymax,xfmt,fn,cur,showF,xticks,yticks){
+  const X0=110, X1=930, Y0=50, Y1=330;
+  const px=v=>X0+(X1-X0)*(v-xmin)/(xmax-xmin), py=c=>Y1-(Y1-Y0)*(c-ymin)/(ymax-ymin);
+  frame(svg,40,6,920,360); txt(svg,60,34,title,12,C.mut2,'start',700,true);
+  svg.appendChild(svgEl('line',{x1:X0,y1:py(0),x2:X1,y2:py(0),stroke:C.line2,'stroke-width':1.5}));
+  yticks.forEach(v=>{txt(svg,X0-10,py(v)+4,sgn(v),11,C.mut2,'end',700,true); if(v!==0) svg.appendChild(svgEl('line',{x1:X0,y1:py(v),x2:X1,y2:py(v),stroke:C.line,'stroke-dasharray':'2 6'}));});
+  xticks.forEach(v=>txt(svg,px(v),Y1+22,xfmt(v),11,C.mut2,'middle',700,true));
+  txt(svg,X0+8,py(0)-8,'today’s value',11,C.mut,'start',700,true);
+  const N=120, ptsS=[], ptsF=[];
+  for(let i=0;i<=N;i++){const v=xmin+(xmax-xmin)*i/N, q=fn(v); ptsS.push(px(v)+','+py(q.ds)); ptsF.push(px(v)+','+py(q.df));}
+  svg.appendChild(svgEl('polyline',{points:ptsS.join(' '),fill:'none',stroke:C.blue,'stroke-width':3}));
+  if(showF) svg.appendChild(svgEl('polyline',{points:ptsF.join(' '),fill:'none',stroke:C.gold,'stroke-width':3}));
+  txt(svg,X1-6,py(fn(xmax).ds)+(fn(xmax).ds>0?-10:18),'Steady Co',12,C.blue,'end',700,true);
+  if(showF) txt(svg,X1-6,py(fn(xmax).df)+(fn(xmax).df>0?-10:18),'Future Co',12,C.gold,'end',700,true);
+  const q=fn(cur);
+  svg.appendChild(svgEl('line',{x1:px(cur),y1:Y0,x2:px(cur),y2:Y1,stroke:C.txt,opacity:.45}));
+  svg.appendChild(svgEl('circle',{cx:px(cur),cy:py(q.ds),r:6,fill:C.blue}));
+  if(showF) svg.appendChild(svgEl('circle',{cx:px(cur),cy:py(q.df),r:7,fill:C.gold}));
+  else txt(svg,px(cur),Y0+80,'?',72,C.gold,'middle',700,true);
+  const right=cur<(xmin+xmax)/2;
+  boxed(svg,px(cur)+(right?14:-14),py(q.ds)+(q.ds>0?-16:28),'Steady '+sgn(q.ds),13,C.blue,right?'start':'end');
+  if(showF) boxed(svg,px(cur)+(right?14:-14),py(q.df)+(q.df>0?-16:28),'Future '+sgn(q.df),14,C.gold,right?'start':'end');
+}
+function valueBars(svg,q,showF){
+  frame(svg,40,382,920,150); txt(svg,60,408,'WHAT EACH IS WORTH — TODAY vs NOW',12,C.mut2,'start',700,true);
+  const lx=290, sc=5.2;
+  [['STEADY CO',S0,q.s,C.blue,438,true],['FUTURE CO',F0,q.f,C.gold,488,showF]].forEach(([l,a,b,col,y,show])=>{
+    txt(svg,60,y+5,l,13,col,'start',700,true);
+    rect(svg,lx,y-17,a*sc,14,C.mut2,.8); txt(svg,lx+a*sc+8,y-6,'today '+gbp(a),11,C.mut,'start',700,true);
+    if(show){rect(svg,lx,y+1,b*sc,14,col,.95); txt(svg,lx+b*sc+8,y+13,'now '+gbp(b)+'  ('+sgn(b/a-1)+')',12,col,'start',700,true);}
+    else txt(svg,lx,y+14,'?',16,C.gold,'start',700,true);
+  });
+}
+function drawRate(svg){
+  curvesChart(svg,'VALUE vs TODAY — FOR EACH RETURN INVESTORS DEMAND',.04,.12,-.4,.6,rFmt,v=>m(v,0),r,shownR,[.04,.06,.08,.10,.12],[-.4,-.2,0,.2,.4,.6]);
+  valueBars(svg,m(r,0),shownR);
+}
+function drawHope(svg){
+  curvesChart(svg,'VALUE vs TODAY — FOR EACH CHANGE IN HOPES FOR THE PROFITS AFTER YEAR 5',-.4,.4,-.6,.6,hFmt,v=>m(R0,v),h,shownH,[-.4,-.2,0,.2,.4],[-.6,-.3,0,.3,.6]);
+  valueBars(svg,m(R0,h),shownH);
+}
+function drawPayoff(svg){
+  const b=m(BAD.r,BAD.h), g=m(GOOD.r,GOOD.h);
+  txt(svg,500,60,'Bad mood → good mood: Future Co '+sgn(g.f/b.f-1),38,C.gold,'middle',700,true);
+  txt(svg,500,94,'STEADY CO '+sgn(g.s/b.s-1)+' · RATES 10% → 6%, HOPES −20% → +20% · TWO ILLUSTRATIVE COMPANIES',12,C.mut2,'middle',700,true);
+  const up=m(R0+.02,0), hd=m(R0,-.2);
+  const L=[['Losing-money companies fell further in 10 of 11 sell-offs — and bounced harder in 10 of 11','US stocks 1951–2026, grouped by whether their last annual earnings were below zero',C.gold],
+    ['Their value is all in the future','like the 30-year bond: most of what they’re worth arrives years from now',C.blue],
+    ['Rates and hopes move far-off money the most — in both directions','rates up 2 points: Steady '+sgn(up.ds)+', Future '+sgn(up.df)+' · hopes −20%: Steady '+sgn(hd.ds)+', Future '+sgn(hd.df),C.ask],
+    ['What this page doesn’t show: the funding loop','a company that has to raise money sells more of itself when its price is low — so the fall feeds itself',C.bid]];
+  L.forEach((l,i)=>{if(reveal<=i) return; const y=124+i*88; svg.appendChild(svgEl('rect',{x:70,y,width:860,height:68,rx:10,fill:C.panel,stroke:l[2],'stroke-width':1.5})); txt(svg,100,y+30,(i+1)+'.  '+l[0],16,l[2],'start',700); txt(svg,100,y+53,l[1],13.5,C.mut,'start');});
+  if(reveal>=5) txt(svg,500,520,'CHALLENGE — rates rise to 10%. How much must hopes rise to put Future Co back where it started? Comments.',14.5,C.txt,'middle',700,true);
+}
+
+const card=(k,v,cls='')=>`<div class="card ${cls}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+const scenes=[
+ {id:'hook',caption:'Eleven sell-offs. <b>Watch the red and green bars.</b>',title:'Interest rates and stocks: why loss-making companies swing hardest',sub:'US companies that were losing money, against profitable ones, in every big sell-off since 1951 — how far they fell, and what they did in the year after the low.',ctl:{},maxReveal:0,draw:drawHook,
+  side(){return card('Fell further','10 <small>of 11</small>','bad')+card('Bounced harder the year after','10 <small>of 11</small>','hero')+card('Worst fall — 2000–02','−78% <small>vs −39%</small>','bad')+card('Biggest bounce — 2020','+134% <small>vs +60%</small>','hero')+`<div class="callout"><b>Groups of stocks, not tips.</b> "Losing money" = last annual earnings below zero. Past patterns, not a forecast.</div>`;}},
+ {id:'companies',caption:'Two companies, <b>same price today</b>',title:'Same price, different timing',sub:'Both are worth about £670,000 today. Steady Co’s money arrives soon. Future Co loses money first — everything it’s worth arrives after year 5.',ctl:{},maxReveal:0,draw:drawCompanies,
+  side(){return card('Steady Co, today',gbp(S0),'blue')+card('Future Co, today',gbp(F0),'gold')+card('Steady Co: value in years 1–5','60%','')+card('Future Co: value in years 1–5',gbp(FUTURE.slice(0,5).reduce((a,cf,i)=>a+cf/Math.pow(1+R0,i+1),0)),'bad')+`<div class="callout"><b>Illustrative companies.</b> Not modelled on any real company or sector.</div>`;}},
+ {id:'rate',caption:'<b>G</b> — move the return investors demand',title:'Rates up two points',sub:'When interest rates rise, investors demand more from everything. Money that arrives years from now is hit hardest.',ctl:{r:true},maxReveal:0,draw:drawRate,
+  side(){const q=m(r,0); return card('Return demanded',rFmt(r),'gold')+card('Steady Co',gbp(q.s)+` <small>${sgn(q.ds)}</small>`,'blue')+card('Future Co',shownR?gbp(q.f)+` <small>${sgn(q.df)}</small>`:'?','gold')+`<div class="callout"><b>Prediction:</b> rates go from 8% to 10%. Steady Co falls 8%. What happens to Future Co?</div><div class="callout blue"><b>Like the bonds video:</b> a 1-point rise took about 2% off the 2-year bond, and 15% off the 30-year.</div>`;}},
+ {id:'hope',caption:'<b>G</b> — move the hopes for the later profits',title:'Hopes for the later years',sub:'The other thing that moves far-off money: how big people expect the later profits to be. Future Co has nothing else.',ctl:{h:true},maxReveal:0,draw:drawHope,
+  side(){const q=m(R0,h); return card('Hopes for profits after year 5',hFmt(h),'blue')+card('Steady Co',gbp(q.s)+` <small>${sgn(q.ds)}</small>`,'blue')+card('Future Co',shownH?gbp(q.f)+` <small>${sgn(q.df)}</small>`:'?','gold')+`<div class="callout"><b>Prediction:</b> hopes for the later profits drop 20%. Steady Co falls 8%. What happens to Future Co?</div><div class="callout good"><b>Last video:</b> the four buyers’ budgets are one of the things that move this slider.</div>`;}},
+ {id:'payoff',caption:'The payoff — <b>D</b> bad mood · <b>U</b> good mood · <b>→</b> reveals each line',title:'Same news, bigger swing — both ways.',sub:'A company whose value is all in the future falls further when the mood turns, and rallies further when it turns back.',ctl:{r:true,h:true},maxReveal:5,draw:drawPayoff,
+  side(){const q=m(r,h); return card('Return demanded · hopes',rFmt(r)+' · '+hFmt(h),'')+card('Steady Co',gbp(q.s)+` <small>${sgn(q.ds)}</small>`,'blue')+card('Future Co',gbp(q.f)+` <small>${sgn(q.df)}</small>`,q.df<-.0005?'bad':'hero')+`<div class="callout warn"><b>Not advice.</b> Two illustrative companies and a history of groups of stocks — how value moves, not a forecast for any company.</div>`;}}
+];
+
+/* ---------- render ---------- */
+function render(){
+  const sc=scenes[scene]; $('title').textContent=sc.title; $('sub').textContent=sc.sub; $('build').textContent=BUILD;
+  $('scnCount').textContent='SCENE '+(scene+1)+' / '+scenes.length; $('scnCaption').innerHTML=sc.caption; $('side').innerHTML=sc.side();
+  $('ctl-r').classList.toggle('hidden',!sc.ctl.r); $('ctl-h').classList.toggle('hidden',!sc.ctl.h);
+  const svg=$('viz'); while(svg.firstChild) svg.removeChild(svg.firstChild);
+  sc.draw(svg);
+  const rr=sc.id==='hope'?R0:r, hh=sc.id==='rate'?0:h, q=m(rr,hh);
+  const hideF=(sc.id==='rate'&&!shownR)||(sc.id==='hope'&&!shownH);
+  $('st-s').textContent=gbp(q.s)+' '+sgn(q.ds); $('st-f').textContent=hideF?'?':gbp(q.f)+' '+sgn(q.df); $('st-rh').textContent=rFmt(rr)+' · '+hFmt(hh);
+  $('cornerV').textContent=hideF?'?':sgn(q.df); $('cornerV').style.color=!hideF&&q.df<-.0005?'var(--ask)':(!hideF&&q.df>.0005?'var(--bid)':'var(--gold)');
+  $('corner').classList.toggle('spot',sc.id==='payoff');
+}
+setInterval(()=>{if(paused||scenes[scene].id!=='hook') return; hookT++; render();},50);
+
+/* ---------- events ---------- */
+function setFill(el){el.style.setProperty('--fill',(100*(el.value-el.min)/(el.max-el.min))+'%');}
+function setR(v){const el=$('rRange'); el.value=v; r=+el.value/100; setFill(el); $('rVal').textContent=rFmt(r);}
+function setH(v){const el=$('hRange'); el.value=v; h=+el.value/100; setFill(el); $('hVal').textContent=hFmt(h);}
+function goto(n){scene=Math.max(0,Math.min(scenes.length-1,n)); reveal=0; gen++; for(const k in tok) tok[k]++;
+  if(scenes[scene].id==='hook') hookT=0;
+  if(['rate','hope','payoff'].includes(scenes[scene].id)){setR(8); setH(0); shownR=false; shownH=false; rStep=0; hStep=0;}
+  render();}
+function advance(){const sc=scenes[scene]; if(reveal<sc.maxReveal){reveal++; render(); return;} goto(scene+1);}
+function resetScene(){for(const k in tok) tok[k]++; setR(8); setH(0); shownR=false; shownH=false; rStep=0; hStep=0; reveal=0; hookT=0; render();}
+$('rRange').addEventListener('input',e=>{r=+e.target.value/100; setFill(e.target); $('rVal').textContent=rFmt(r); if(scenes[scene].id==='rate') shownR=true; render();});
+$('hRange').addEventListener('input',e=>{h=+e.target.value/100; setFill(e.target); $('hVal').textContent=hFmt(h); if(scenes[scene].id==='hope') shownH=true; render();});
+$('prev').addEventListener('click',()=>goto(scene-1)); $('next').addEventListener('click',advance);
+/* ---------- keyboard slider sweeps ----------
+   Same pattern as the *-b02 builds: a key press sweeps the real slider to the
+   next value the script asks for, at the same pace every take, firing its own
+   input event, so the page updates exactly as if it were dragged. Presets
+   sweep both sliders at once. R or a scene change stops any sweep. */
+const R_SEQ=[10,6,8], H_SEQ=[-20,20,0], MS=2200;
+const tok={rRange:0,hRange:0};
+function sweep(id,to,grain){
+  const el=$(id), from=+el.value, t=++tok[id], g=gen; if(Math.abs(from-to)<1e-9) return;
+  const t0=performance.now(), put=v=>{if(+el.value===v) return; el.value=v; el.dispatchEvent(new Event('input',{bubbles:true}));};
+  (function f(now){ if(g!==gen||t!==tok[id]) return; const p=Math.min(1,(now-t0)/MS), e=ease(p);
+    put(p<1?Math.round((from+(to-from)*e)/grain)*grain:to); if(p<1) requestAnimationFrame(f); })(t0);
+}
+function preset(rv,hv){if(scenes[scene].id!=='payoff') return; sweep('rRange',rv,0.1); sweep('hRange',hv,1);}
+document.addEventListener('keydown',e=>{
+  const a=document.activeElement; if(a&&(a.tagName==='INPUT'||a.tagName==='BUTTON')) a.blur();
+  const k=e.key.toLowerCase(), id=scenes[scene].id;
+  if(e.key==='ArrowRight'){e.preventDefault(); advance();} if(e.key==='ArrowLeft'){e.preventDefault(); goto(scene-1);}
+  if(/^[1-5]$/.test(e.key)) goto(+e.key-1);
+  if(k==='g'&&id==='rate'){sweep('rRange',R_SEQ[rStep%R_SEQ.length],0.1); rStep++;}
+  if(k==='g'&&id==='hope'){sweep('hRange',H_SEQ[hStep%H_SEQ.length],1); hStep++;}
+  if(k==='d') preset(BAD.r*100,BAD.h*100); if(k==='u') preset(GOOD.r*100,GOOD.h*100); if(k==='n') preset(8,0);
+  if(k==='r') resetScene();
+  if(e.key===' '){e.preventDefault(); paused=!paused;}
+});
+setR(8); setH(0); goto(0);
+
+/* ---------- sanity ---------- */
+function sanity(){
+  const row=(l,rr,hh)=>{const q=m(rr,hh); return `| ${l} | ${rFmt(rr)} | ${hFmt(hh)} | ${gbp(q.s)} (${sgn(q.ds,1)}) | ${gbp(q.f)} (${sgn(q.df,1)}) |`;};
+  const b=m(BAD.r,BAD.h), g=m(GOOD.r,GOOD.h);
+  const lo=FUTURE.reduce((a,cf,i)=>a+(i<5?cf/Math.pow(1.10,i+1):0),0), hi=FUTURE.reduce((a,cf,i)=>a+(i>=5?cf/Math.pow(1.10,i+1):0),0);
+  const out=['SANITY — Steady Co '+gbp(S0)+' · Future Co '+gbp(F0)+' at 8%',
+    '| case | rate | hopes | Steady Co | Future Co |','|---|---|---|---|---|',
+    row('today',.08,0),row('rates up 2',.10,0),row('rates down 2',.06,0),row('rates 12%',.12,0),row('hopes −20%',.08,-.2),row('hopes +20%',.08,.2),row('bad mood',BAD.r,BAD.h),row('good mood',GOOD.r,GOOD.h),
+    'bad → good: Steady '+sgn(g.s/b.s-1,1)+' · Future '+sgn(g.f/b.f-1,1)+' · good → bad: Future '+sgn(b.f/g.f-1,1),
+    'challenge: at 10%, hopes must rise '+sgn((F0-lo)/hi-1,1)+' to put Future Co back at '+gbp(F0)].join('\n');
+  console.log(out); return out;}
+window.sanity=sanity;
+</script>
+</body>
+</html>

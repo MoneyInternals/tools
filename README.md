@@ -22,6 +22,7 @@ Every page is **frozen as broadcast**: it's the exact build that appeared in the
 | [`/mortgage-split/`](https://moneyinternals.com/mortgage-split/) | Your first mortgage payment — where the £1,461 goes | UK Money Mechanics |
 | [`/wyao-bonds/`](https://moneyinternals.com/wyao-bonds/) | Why bond prices fall when rates rise — two friends, two bonds | What You Actually Own |
 | [`/himm-capex/`](https://moneyinternals.com/himm-capex/) | The AI capex problem — why a supplier paid for growth sees sales halve when spending grows 10% | How It Actually Makes Money |
+| [`/cash-burn/`](https://moneyinternals.com/cash-burn/) | Why loss-makers swing hardest — two made-up companies, rates and hopes | Market Mechanics |
 
 `/pension/ep03-relief-at-source/` is a redirect to `/pension/ep03-pension-relief/`, kept so an older link keeps working.
 
