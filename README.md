@@ -23,6 +23,7 @@ Every page is **frozen as broadcast**: it's the exact build that appeared in the
 | [`/wyao-bonds/`](https://moneyinternals.com/wyao-bonds/) | Why bond prices fall when rates rise — two friends, two bonds | What You Actually Own |
 | [`/himm-capex/`](https://moneyinternals.com/himm-capex/) | The AI capex problem — why a supplier paid for growth sees sales halve when spending grows 10% | How It Actually Makes Money |
 | [`/cash-burn/`](https://moneyinternals.com/cash-burn/) | Why loss-makers swing hardest — two made-up companies, rates and hopes | Market Mechanics |
+| [`/marginal-rate-map/`](https://moneyinternals.com/marginal-rate-map/) | UK tax bands at every salary — the tax on your next £1, every cliff on one line | UK Money Mechanics |
 
 `/pension/ep03-relief-at-source/` is a redirect to `/pension/ep03-pension-relief/`, kept so an older link keeps working.
 

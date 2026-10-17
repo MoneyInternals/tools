@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Every UK tax cliff on one slider — Money Internals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0B0E13; --panel:#121821; --panel2:#171F2A; --line:#232A33; --line2:#2C3540; --txt:#E6EAF0; --mut:#8B94A3; --mut2:#5C6675; --bid:#2EBD85; --ask:#F6465D; --gold:#E8B33C; --blue:#4A9EDA; --accent:#2EBD85; --sans:'Inter',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace; --r:10px}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{height:100%}
+body{background:var(--bg); color:var(--txt); font-family:var(--sans); font-weight:500; display:flex; flex-direction:column; overflow:hidden}
+.tnum{font-variant-numeric:tabular-nums}
+.topbar{display:flex; align-items:center; gap:26px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel)}
+.brand .name{font-size:16px; letter-spacing:.3px} .brand .name b{color:var(--bid); font-weight:700}
+.ticker{font-family:var(--mono); font-size:12px; color:var(--mut); letter-spacing:2px} .ticker.year{color:var(--gold)}
+.stats{margin-left:auto; display:flex; gap:26px}
+.stat-h{display:flex; flex-direction:column; align-items:flex-end}
+.stat-h .k{font-size:10px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2)}
+.stat-h .v{font-family:var(--mono); font-size:17px; font-weight:700}
+#st-marg{color:var(--ask)} #st-keep{color:var(--bid)} #st-avg{color:var(--gold)}
+.stage{flex:1; display:grid; grid-template-columns:1fr 360px; min-height:0; position:relative}
+.main{display:flex; flex-direction:column; padding:22px 26px 26px; min-width:0; min-height:0}
+.main h1{font-size:26px; font-weight:700; letter-spacing:-.3px}
+.main .sub{color:var(--mut); font-size:15px; margin-top:6px; line-height:1.45; max-width:70ch}
+.viz{flex:1; margin-top:14px; min-height:0; display:flex} .viz svg{width:100%; height:100%}
+.side{border-left:1px solid var(--line); background:var(--panel); padding:18px; display:flex; flex-direction:column; gap:12px; overflow-y:auto}
+.card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--r); padding:13px 16px}
+.card .k{font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:var(--mut2); margin-bottom:4px}
+.card .v{font-family:var(--mono); font-size:26px; font-weight:700; font-variant-numeric:tabular-nums} .card .v small{font-size:14px; color:var(--mut); font-weight:500}
+.card.hero{border-color:var(--bid)} .card.hero .v{color:var(--bid); font-size:31px}
+.card.bad{border-color:var(--ask)} .card.bad .v{color:var(--ask)}
+.card.gold{border-color:var(--gold)} .card.gold .v{color:var(--gold)}
+.card.blue{border-color:var(--blue)} .card.blue .v{color:var(--blue)}
+.callout{background:var(--panel2); border-left:3px solid var(--gold); border-radius:0 var(--r) var(--r) 0; padding:12px 15px; font-size:14.5px; line-height:1.5} .callout b{color:var(--gold)}
+.callout.warn{border-left-color:var(--ask)} .callout.warn b{color:var(--ask)} .callout.good{border-left-color:var(--bid)} .callout.good b{color:var(--bid)} .callout.blue{border-left-color:var(--blue)} .callout.blue b{color:var(--blue)}
+.controls{display:flex; align-items:center; gap:22px; flex-wrap:wrap; padding:12px 26px; border-top:1px solid var(--line); background:var(--panel)}
+.ctl{display:flex; align-items:center; gap:12px} .ctl.hidden{display:none}
+.ctl .lbl{font-size:11px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2); white-space:nowrap}
+.ctl .val{font-family:var(--mono); font-size:16px; font-weight:700; min-width:90px} .ctl .val.gold{color:var(--gold)}
+input[type=range]{-webkit-appearance:none; appearance:none; width:320px; height:6px; border-radius:3px; background:linear-gradient(to right, var(--gold) var(--fill,0%), var(--line2) var(--fill,0%)); outline:none; cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:18px; height:18px; border-radius:50%; background:var(--txt); border:3px solid var(--gold); cursor:grab}
+input[type=range]:focus-visible{outline:2px solid var(--txt); outline-offset:3px}
+.seg{display:flex; border:1px solid var(--line2); border-radius:6px; overflow:hidden}
+.seg button{font-family:var(--mono); font-size:13px; padding:8px 14px; border:0; background:var(--panel2); color:var(--mut); cursor:pointer} .seg button.on{background:var(--blue); color:#0B0E13; font-weight:700}
+.stepper{display:grid; grid-template-columns:auto 1fr auto auto; align-items:center; gap:18px; padding:11px 20px; border-top:1px solid var(--line); background:var(--panel)}
+.scn-count{font-family:var(--mono); font-size:14px; color:var(--mut); white-space:nowrap} .scn-caption{font-size:15px} .scn-caption b{color:var(--accent)}
+.disclaimer{font-size:11px; color:var(--mut2); white-space:nowrap}
+.scn-nav{display:flex; gap:8px} .scn-nav button{font-family:var(--mono); font-size:13px; padding:7px 14px; border-radius:6px; border:1px solid var(--line2); background:var(--panel2); color:var(--mut); cursor:pointer} .scn-nav button:hover{border-color:var(--accent); color:var(--accent)}
+.build{position:absolute; left:26px; bottom:8px; font-family:var(--mono); font-size:10px; color:var(--mut2)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><span class="name">MONEY <b>INTERNALS</b></span></div>
+  <span class="ticker">WHAT THE NEXT £1 OF PAY IS TAXED AT</span>
+  <span class="ticker year" id="st-year">—</span>
+  <div class="stats">
+    <div class="stat-h"><span class="k">Marginal rate here</span><span class="v tnum" id="st-marg">—</span></div>
+    <div class="stat-h"><span class="k">Of a £1,000 rise, kept</span><span class="v tnum" id="st-keep">—</span></div>
+    <div class="stat-h"><span class="k">Average rate</span><span class="v tnum" id="st-avg">—</span></div>
+  </div>
+</div>
+<div class="stage">
+  <div class="main"><h1 id="title"></h1><div class="sub" id="sub"></div><div class="viz"><svg id="viz" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet"></svg></div></div>
+  <div class="side" id="side"></div><div class="build" id="build"></div>
+</div>
+<div class="controls">
+  <div class="ctl" id="ctl-sal"><span class="lbl">Salary</span><input type="range" id="salRange" min="20000" max="150000" step="500" value="49000"><span class="val gold tnum" id="salVal">£49,000</span></div>
+  <div class="ctl" id="ctl-loan"><span class="lbl">Student loan</span><div class="seg" id="loanSeg"><button data-v="0" class="on">none</button><button data-v="1">Plan 2</button></div></div>
+  <div class="ctl" id="ctl-kids"><span class="lbl">Children (child benefit)</span><div class="seg" id="kidSeg"><button data-v="0" class="on">0</button><button data-v="1">1</button><button data-v="2">2</button></div></div>
+</div>
+<div class="stepper">
+  <span class="scn-count" id="scnCount"></span><span class="scn-caption" id="scnCaption"></span>
+  <span class="disclaimer">Illustrative · England/Wales/NI · income tax + employee NI + HICBC + Plan 2 · no pension, no benefits taper · educational — not advice</span>
+  <div class="scn-nav"><button id="prev">← Prev</button><button id="next">Next →</button></div>
+</div>
+<script>
+/* ============================================================
+   BUILD mrm-b03 — "Every UK tax cliff on one slider"
+   mrm-b03 (2026-10-17): 2026/27 child benefit (£27.05/£17.90) and Plan 2 (£29,385);
+     payoff cards point at the videos that exist (ep02, pension vs ISA), savings allowance dropped.
+   mrm-b02 (2026-10-10): the slider keys sweep to the script's next value instead of
+     .focus() (which never worked) — see 'keyboard slider sweeps'.
+   Key map:  → advance (reveals on scene 5) · ← back · 1–5 jump
+     S sweep salary · L toggle student loan · 0/1/2 children (scenes 2–4) · R reset
+   REGISTERED ASSUMPTIONS (⚠️ all verified on the day):
+     PA 12,570 · basic 20% to 37,700 taxable · higher 40% to 125,140 · addl 45%
+     PA taper £1 per £2 over 100,000 · NI 8% 12,570–50,270, 2% above
+     HICBC: 1% of child benefit per £200 over 60,000, all gone at 80,000
+     Child benefit: £27.05 + £17.90 /week (2 kids ≈ £2,337 /yr)
+     Plan 2: 9% over 29,385 · thresholds frozen to April 2031
+   Marginal rate = (deductions at s+1,000 − at s) / 1,000
+   sanity(): £49k 28% · £51k 42% · £65k +2 kids 54% · £101k 62% · £130k 47%
+   ============================================================ */
+const BUILD='mrm-b03', TAX_YEAR='2026/27';
+const PA=12570, BR=37700, ADD=125140, TAPER=100000, NI_L=12570, NI_U=50270, NI_M=0.08, NI_H=0.02;
+const HI_LO=60000, HI_HI=80000, CB_FIRST=27.05*52, CB_NEXT=17.90*52, SL_THR=29385, SL_RATE=0.09;
+const $=id=>document.getElementById(id);
+const C={panel:'#171F2A',line:'#232A33',line2:'#2C3540',txt:'#E6EAF0',mut:'#8B94A3',mut2:'#5C6675',bid:'#2EBD85',ask:'#F6465D',gold:'#E8B33C',blue:'#4A9EDA'};
+const NS='http://www.w3.org/2000/svg';
+const svgEl=(t,a)=>{const e=document.createElementNS(NS,t); for(const k in a) e.setAttribute(k,a[k]); return e;};
+function txt(svg,x,y,s,size=14,fill=C.txt,anchor='start',weight=500,mono=false){const t=svgEl('text',{x,y,'font-size':size,fill,'text-anchor':anchor,'font-weight':weight,'font-family':mono?"'JetBrains Mono',monospace":"'Inter',sans-serif"}); t.textContent=s; svg.appendChild(t); return t;}
+const gbp=n=>'£'+Math.round(n).toLocaleString('en-GB'); const pct=n=>Math.round(n*100)+'%';
+
+let sal=49000, loan=0, kids=0, scene=0, reveal=0, gen=0, hookT=0, paused=false, hookOverlay=false;
+const later=(ms,fn)=>{const g=gen; setTimeout(()=>{if(g===gen) fn();},ms);};
+const allowance=s=>s<=TAPER?PA:Math.max(0,PA-(s-TAPER)/2);
+function tax(s){const t=Math.max(0,s-allowance(s)); return Math.min(t,BR)*.2+Math.min(Math.max(t-BR,0),ADD-BR)*.4+Math.max(t-ADD,0)*.45;}
+const ni=s=>Math.max(0,Math.min(s,NI_U)-NI_L)*NI_M+Math.max(0,s-NI_U)*NI_H;
+const sl=s=>loan?Math.max(0,s-SL_THR)*SL_RATE:0;
+function cb(k){return k===0?0:CB_FIRST+(k-1)*CB_NEXT;}
+function hicbc(s,k){if(k===0||s<=HI_LO) return 0; return cb(k)*Math.min(1,Math.floor((s-HI_LO)/200)/100);}
+const ded=(s,k=kids)=>tax(s)+ni(s)+sl(s)+hicbc(s,k);
+const marg=(s,k=kids)=>(ded(s+1000,k)-ded(s,k))/1000;
+const parts=(s,k=kids)=>({tax:(tax(s+1000)-tax(s))/1000, ni:(ni(s+1000)-ni(s))/1000, sl:(sl(s+1000)-sl(s))/1000, hi:(hicbc(s+1000,k)-hicbc(s,k))/1000});
+
+function frame(svg,x,y,w,h){svg.appendChild(svgEl('rect',{x,y,width:w,height:h,rx:8,fill:C.panel,stroke:C.line}));}
+function map(svg,x,y,w,h,opts={}){frame(svg,x,y,w,h); const smin=20000,smax=150000; const px=s=>x+60+(w-90)*((s-smin)/(smax-smin)), py=v=>y+h-40-(h-80)*(v/0.8);
+  for(const v of [0.2,0.4,0.6,0.8]){svg.appendChild(svgEl('line',{x1:x+60,y1:py(v),x2:x+w-30,y2:py(v),stroke:C.line,'stroke-dasharray':'3 5'})); txt(svg,x+52,py(v)+4,pct(v),10,C.mut2,'end',500,true);}
+  const pts=[]; for(let s=smin;s<=smax;s+=250) pts.push(px(s)+','+py(marg(s)));
+  svg.appendChild(svgEl('polygon',{points:px(smin)+','+py(0)+' '+pts.join(' ')+' '+px(smax)+','+py(0),fill:C.ask,opacity:.14}));
+  svg.appendChild(svgEl('polyline',{points:pts.join(' '),fill:'none',stroke:C.ask,'stroke-width':2.5,'stroke-linejoin':'round'}));
+  for(let s=20000;s<=150000;s+=10000) if(s%20000===0) txt(svg,px(s),y+h-14,gbp(s/1000)+'k',10,C.mut2,'middle',500,true);
+  const marks=[[NI_U,'£50,270 · 40% starts'],[TAPER,'£100k · allowance taper'],[ADD,'£125,140']]; if(kids) marks.splice(1,0,[HI_LO,'£60k · child benefit charge']);
+  marks.forEach(([s,l],i)=>{svg.appendChild(svgEl('line',{x1:px(s),y1:y+34,x2:px(s),y2:y+h-40,stroke:C.mut2,'stroke-dasharray':'3 4'})); txt(svg,px(s)+4,y+50+i*14,l,10,C.mut2,'start',700,true);});
+  if(opts.cursor!==false){const s=opts.cursorAt??sal; svg.appendChild(svgEl('line',{x1:px(s),y1:y+34,x2:px(s),y2:y+h-40,stroke:C.gold,'stroke-width':1.5})); svg.appendChild(svgEl('circle',{cx:px(s),cy:py(marg(s)),r:6,fill:C.gold}));
+    txt(svg,px(s)+(s>120000?-10:10),py(marg(s))-14,gbp(s)+' → '+pct(marg(s)),13,C.gold,s>120000?'end':'start',700,true);}
+  txt(svg,x+14,y+22,opts.title||'',12,C.mut2,'start',700,true);}
+function drawHook(svg){const ph=(hookT%160)/160, sw=ph<.5?ph*2:2-ph*2; const s=Math.round((20000+130000*sw)/500)*500;
+  map(svg,40,50,920,460,{title:'THE NEXT £1 OF PAY — WHAT IT IS TAXED AT, ALL IN · NO LOAN, NO CHILDREN',cursorAt:s});
+  if(hookOverlay){svg.appendChild(svgEl('rect',{x:270,y:470,width:460,height:40,rx:8,fill:C.panel,stroke:C.gold})); txt(svg,500,496,'The headline rates are 20, 40, 45. This line is not.',15,C.gold,'middle',700,true);}}
+function drawTwo(svg){[[49000,80],[101000,520]].forEach(([s,x])=>{const p=parts(s); const keep=1000-marg(s)*1000; frame(svg,x,50,400,460); txt(svg,x+200,76,gbp(s)+' SALARY · A £1,000 RISE',12,C.mut2,'middle',700,true);
+  let yy=110; const rows=[['income tax',p.tax,C.ask],['national insurance',p.ni,C.blue],['student loan',p.sl,C.gold],['child benefit charge',p.hi,C.ask]];
+  rows.forEach(([l,v,c])=>{if(v<=0) return; svg.appendChild(svgEl('rect',{x:x+30,y:yy,width:340*v,height:26,rx:4,fill:c,opacity:.85})); txt(svg,x+30,yy-6,l+'  '+gbp(v*1000),11,c,'start',700,true); yy+=52;});
+  txt(svg,x+200,400,'kept: '+gbp(keep),34,C.bid,'middle',700,true); txt(svg,x+200,432,'marginal rate '+pct(marg(s)),13,C.mut,'middle',500,true);});}
+function drawMap(svg){map(svg,40,50,920,460,{title:'THE WHOLE MAP · '+(loan?'PLAN 2 LOAN':'NO LOAN')+' · '+kids+' CHILD'+(kids===1?'':'REN')});}
+function drawPayoff(svg){txt(svg,500,70,'£49,000 keeps £720 · £101,000 keeps £380',40,C.gold,'middle',700,true); txt(svg,500,104,'OF THE SAME £1,000 PAY RISE · NO LOAN, NO CHILDREN',13,C.mut2,'middle',700,true);
+  const L=[['The headline rates are 20, 40, 45. The real marginal rate is set by what switches off.','the personal allowance, child benefit — each one is a cliff',C.ask],
+    ['£50,270 · £60–80k · £100–125k','42% · 54% with two children · 62% — plus 9% with a loan on top of all of them',C.gold],
+    ['The lines are frozen','a pay rise walks you across them; nothing in the rates changed',C.blue],
+    ['Two more videos go deeper','the £110k salary that pays less than £100k · pension vs ISA: where the same £1,000 lands — links below',C.bid]];
+  L.forEach((l,i)=>{if(reveal<=i) return; const y=150+i*86; svg.appendChild(svgEl('rect',{x:100,y,width:800,height:66,rx:10,fill:C.panel,stroke:l[2],'stroke-width':1.5})); txt(svg,130,y+29,(i+1)+'.  '+l[0],17,l[2],'start',700); txt(svg,130,y+52,l[1],14,C.mut,'start');});
+  if(reveal>=5) txt(svg,500,530,'CHALLENGE — your salary, your loan, your children: what is your marginal rate? Comments.',15,C.txt,'middle',700,true);}
+const card=(k,v,cls='')=>`<div class="card ${cls}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+const scenes=[
+ {id:'hook',caption:'One line: what your <b>next</b> pound of pay is taxed at',title:'Every UK tax cliff on one slider.',sub:'Not the headline rates. The rate on the next £1 of pay, once every allowance that switches off is counted.',controls:{},maxReveal:0,draw:drawHook,
+  side(){return card('At £49,000',pct(marg(49000,0)),'')+card('At £51,000',pct(marg(51000,0)),'bad')+card('At £101,000',pct(marg(101000,0)),'bad')+`<div class="callout"><b>Not a staircase.</b> The rates go 20, 40, 45. The line does not.</div>`;}},
+ {id:'two',caption:'Two people. Same £1,000 rise. <b>Prediction first.</b>',title:'£49,000 and £101,000',sub:'Both get a £1,000 pay rise. One earns £49,000. One earns £101,000. Who keeps more of it?',controls:{},maxReveal:0,draw:drawTwo,
+  side(){return card('£49,000 keeps',gbp(1000-marg(49000,0)*1000),'hero')+card('£101,000 keeps',gbp(1000-marg(101000,0)*1000),'bad')+`<div class="callout blue"><b>The £101,000 earner pays 40% income tax</b> — and loses £500 of personal allowance, which is taxed at 40% too. 60%, plus 2% NI.</div>`;}},
+ {id:'map',caption:'<b>S</b> — drag across the whole map. <b>L</b> loan · <b>0/1/2</b> children',title:'The map',sub:'Each spike is an allowance switching off. Add a student loan and the whole line lifts 9 points. Add children and a new cliff appears at £60,000.',controls:{sal:true,loan:true,kids:true},maxReveal:0,draw:drawMap,
+  side(){const p=parts(sal); return card('Salary',gbp(sal),'gold')+card('Marginal rate',pct(marg(sal)),'bad')+card('Of a £1,000 rise, kept',gbp(1000-marg(sal)*1000),'hero')+`<div class="callout"><b>Made of:</b> tax ${pct(p.tax)} · NI ${pct(p.ni)}${p.sl?' · loan '+pct(p.sl):''}${p.hi?' · child benefit charge '+pct(p.hi):''}</div>`;}},
+ {id:'kids',caption:'<b>2</b> children — the cliff at £60,000',title:'The child benefit charge',sub:'Between £60,000 and £80,000, 1% of child benefit is clawed back for every £200 of income. For two children that is about £2,340 across £20,000 — an extra 12 points on the line.',controls:{sal:true,loan:true,kids:true},maxReveal:0,draw:drawMap,
+  side(){return card('Child benefit, '+kids+' child'+(kids===1?'':'ren'),gbp(cb(kids))+' <small>/yr</small>','blue')+card('At '+gbp(sal)+', charged back',gbp(hicbc(sal,kids)),'bad')+card('Marginal rate here',pct(marg(sal)),'bad')+`<div class="callout warn"><b>Mechanics only.</b> Pension contributions reduce the income these tapers look at — that is a fact about the formula, not a suggestion.</div>`;}},
+ {id:'payoff',caption:'The payoff — <b>→</b> reveals each line',title:'The rates are 20, 40, 45. The line is not.',sub:'Four things about UK marginal tax that the band table hides.',controls:{},maxReveal:5,draw:drawPayoff,
+  side(){return card('£49k → £51k',pct(marg(49000,0))+' → '+pct(marg(51000,0)),'')+card('£99k → £101k',pct(marg(99000,0))+' → '+pct(marg(101000,0)),'bad')+`<div class="callout warn"><b>Not advice.</b> Employee, E/W/NI, no pension, no benefits. Scottish rates, self-employment and benefit tapers all change the line.</div>`;}}
+];
+function render(){const sc=scenes[scene]; $('title').textContent=sc.title; $('sub').textContent=sc.sub; $('build').textContent=BUILD; $('st-year').textContent='TAX YEAR '+TAX_YEAR; $('scnCount').textContent='SCENE '+(scene+1)+' / '+scenes.length; $('scnCaption').innerHTML=sc.caption; $('side').innerHTML=sc.side();
+  ['sal','loan','kids'].forEach(k=>$('ctl-'+k).classList.toggle('hidden',!sc.controls[k]));
+  document.querySelectorAll('#loanSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.v===loan)); document.querySelectorAll('#kidSeg button').forEach(b=>b.classList.toggle('on',+b.dataset.v===kids));
+  const s=sc.controls.sal?sal:49000; $('st-marg').textContent=pct(marg(s)); $('st-keep').textContent=gbp(1000-marg(s)*1000); $('st-avg').textContent=pct(ded(s)/s);
+  const svg=$('viz'); while(svg.firstChild) svg.removeChild(svg.firstChild); sc.draw(svg);}
+setInterval(()=>{if(paused||scenes[scene].id!=='hook') return; hookT++; render();},50);
+function goto(k){scene=Math.max(0,Math.min(scenes.length-1,k)); reveal=0; gen++; hookOverlay=false; if(scenes[scene].id==='hook') later(2600,()=>{hookOverlay=true;}); if(scenes[scene].id==='kids'&&kids===0){kids=2; sal=65000; $('salRange').value=65000; $('salVal').textContent='£65,000'; setFill($('salRange'));} render();}
+function advance(){const sc=scenes[scene]; if(reveal<sc.maxReveal){reveal++; render(); return;} goto(scene+1);}
+function setFill(r){r.style.setProperty('--fill',(100*(r.value-r.min)/(r.max-r.min))+'%');}
+function resetScene(){sal=49000; loan=0; kids=0; $('salRange').value=49000; $('salVal').textContent='£49,000'; setFill($('salRange')); reveal=0; render();}
+$('salRange').addEventListener('input',e=>{sal=+e.target.value; setFill(e.target); $('salVal').textContent=gbp(sal); render();});
+document.querySelectorAll('#loanSeg button').forEach(b=>b.addEventListener('click',()=>{loan=+b.dataset.v; render();})); document.querySelectorAll('#kidSeg button').forEach(b=>b.addEventListener('click',()=>{kids=+b.dataset.v; render();}));
+$('prev').addEventListener('click',()=>goto(scene-1)); $('next').addEventListener('click',advance);
+/* ---------- keyboard slider sweeps (mrm-b02) ----------
+   The slider keys used to .focus() the range input, which never worked: the
+   keydown handler blurs any focused input on every keypress, so the next key
+   changed the scene instead (the bug mortgage-split fixed in mtg-b03 and
+   wyao-bonds in wyao-b02). Now each press sweeps the slider smoothly to the
+   next value the script asks for (SWEEP below; per-scene where the script
+   differs), at the same pace every take. It moves the real slider and fires
+   its own input event, so the page updates exactly as if it were dragged.
+   A press during a sweep moves on from where it was heading. R stops a sweep.
+   Mouse dragging still works exactly as before. */
+const SWEEP={"salRange": {"stops": {"map": [51000, 101000, 126000, 130000, 49000], "kids": [85000, 65000]}, "ms": 1800, "msPer": 0.04, "grain": 100}};
+let sweepTok=0; const sweepTo={};
+function sweepNext(id){
+  const c=SWEEP[id], el=$(id); if(!c) return;
+  const stops=Array.isArray(c.stops)?c.stops:(c.stops[scenes[scene].id]||Object.values(c.stops)[0]);
+  const cur=sweepTo[id]??+el.value, i=stops.findIndex(s=>Math.abs(s-cur)<1e-9), to=i<0?stops[0]:stops[(i+1)%stops.length];
+  const from=+el.value, tok=++sweepTok, g=gen; for(const k in sweepTo) sweepTo[k]=null;
+  if(Math.abs(from-to)<1e-9) return; sweepTo[id]=to;
+  const ms=Math.max(c.ms||2000,(c.msPer||0)*Math.abs(to-from)), step0=el.step, t0=performance.now(); el.step='any';
+  const put=v=>{if(+el.value===v) return; el.value=v; el.dispatchEvent(new Event('input',{bubbles:true}));};
+  (function f(now){
+    if(g!==gen||tok!==sweepTok){if(tok===sweepTok) sweepTo[id]=null; el.step=step0; return;}   // scene change, reset or a newer press
+    const p=Math.min(1,(now-t0)/ms), e=p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+    put(p<1?Math.round((from+(to-from)*e)/c.grain)*c.grain:to);
+    if(p<1) requestAnimationFrame(f); else {sweepTo[id]=null; el.step=step0; put(to);}
+  })(t0);
+}
+document.addEventListener('keydown',e=>{if(e.key.toLowerCase()==='r') sweepTok++;},true);   // R resets the scene: stop any sweep first
+document.addEventListener('keydown',e=>{const a=document.activeElement; if(a&&(a.tagName==='INPUT'||a.tagName==='BUTTON')) a.blur(); const k=e.key.toLowerCase();
+  if(e.key==='ArrowRight'){e.preventDefault(); advance();} if(e.key==='ArrowLeft'){e.preventDefault(); goto(scene-1);}
+  if(scenes[scene].controls.kids){ if(/^[0-2]$/.test(e.key)){kids=+e.key; render();} if(e.key==='5') goto(4); } else if(/^[1-5]$/.test(e.key)) goto(+e.key-1);
+  if(k==='l'&&scenes[scene].controls.loan){loan=loan?0:1; render();} if(k==='s'&&scenes[scene].controls.sal) sweepNext('salRange'); if(k==='r') resetScene(); if(k==='p') goto(4);
+  if(e.key===' '){e.preventDefault(); paused=!paused;}});
+setFill($('salRange')); goto(0);
+function sanity(){const rows=[30000,49000,51000,59000,65000,79000,85000,99000,101000,120000,130000].map(s=>`| ${gbp(s)} | ${pct((ded(s+1000,0)-ded(s,0))/1000-(loan?0:0))} | ${pct(marg(s,2))} |`);
+  const keepL=loan; loan=0; const base=[30000,49000,51000,65000,101000,130000].map(s=>`${gbp(s)}: ${pct(marg(s,0))}`); loan=1; const wl=[49000,101000].map(s=>`${gbp(s)}+loan: ${pct(marg(s,0))}`); loan=keepL;
+  const out=['SANITY — marginal rate on the next £1,000 (current loan setting: '+(loan?'Plan 2':'none')+')','| salary | 0 children | 2 children |','|---|---|---|',...rows,'no loan: '+base.join(' · '),'with loan: '+wl.join(' · '),'£1,000 rise kept at £49k: '+gbp(1000-marg(49000,0)*1000)+' · at £101k: '+gbp(1000-marg(101000,0)*1000)].join('\n'); console.log(out); render(); return out;}
+window.sanity=sanity;
+</script>
+</body>
+</html>
