@@ -24,6 +24,7 @@ Every page is **frozen as broadcast**: it's the exact build that appeared in the
 | [`/himm-capex/`](https://moneyinternals.com/himm-capex/) | The AI capex problem — why a supplier paid for growth sees sales halve when spending grows 10% | How It Actually Makes Money |
 | [`/cash-burn/`](https://moneyinternals.com/cash-burn/) | Why loss-makers swing hardest — two made-up companies, rates and hopes | Market Mechanics |
 | [`/marginal-rate-map/`](https://moneyinternals.com/marginal-rate-map/) | UK tax bands at every salary — the tax on your next £1, every cliff on one line | UK Money Mechanics |
+| [`/small-caps/`](https://moneyinternals.com/small-caps/) | Small cap vs large cap since 1926 — every big fall, how far each side fell and bounced | Market Mechanics |
 
 `/pension/ep03-relief-at-source/` is a redirect to `/pension/ep03-pension-relief/`, kept so an older link keeps working.
 

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Small cap vs large cap since 1926 — Money Internals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0B0E13; --panel:#121821; --panel2:#171F2A; --line:#232A33; --line2:#2C3540;
+  --txt:#E6EAF0; --mut:#8B94A3; --mut2:#5C6675;
+  --bid:#2EBD85; --ask:#F6465D; --gold:#E8B33C; --blue:#4A9EDA;
+  --accent:#2EBD85;
+  --sans:'Inter',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+  --r:10px;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{height:100%}
+body{background:var(--bg); color:var(--txt); font-family:var(--sans); font-weight:500; display:flex; flex-direction:column; overflow:hidden}
+.tnum{font-variant-numeric:tabular-nums}
+.topbar{display:flex; align-items:center; gap:26px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel)}
+.brand .name{font-size:16px; letter-spacing:.3px}
+.brand .name b{color:var(--bid); font-weight:700}
+.ticker{font-family:var(--mono); font-size:12px; color:var(--mut); letter-spacing:2px}
+.ticker.year{color:var(--gold)}
+.stats{margin-left:auto; display:flex; gap:26px}
+.stat-h{display:flex; flex-direction:column; align-items:flex-end}
+.stat-h .k{font-size:10px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2)}
+.stat-h .v{font-family:var(--mono); font-size:17px; font-weight:700}
+#st-fell{color:var(--ask)} #st-bounce{color:var(--bid)}
+.stage{flex:1; display:grid; grid-template-columns:1fr 360px; min-height:0; position:relative}
+.main{display:flex; flex-direction:column; padding:22px 26px 96px; min-width:0; min-height:0}
+.main h1{font-size:26px; font-weight:700; letter-spacing:-.3px}
+.main .sub{color:var(--mut); font-size:15px; margin-top:6px; line-height:1.45; max-width:70ch}
+.viz{flex:1; margin-top:14px; min-height:0; display:flex}
+.viz svg{width:100%; height:100%}
+.side{border-left:1px solid var(--line); background:var(--panel); padding:18px; display:flex; flex-direction:column; gap:12px; overflow-y:auto}
+.card{background:var(--panel2); border:1px solid var(--line); border-radius:var(--r); padding:13px 16px}
+.card .k{font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:var(--mut2); margin-bottom:4px}
+.card .v{font-family:var(--mono); font-size:26px; font-weight:700; font-variant-numeric:tabular-nums}
+.card .v small{font-size:14px; color:var(--mut); font-weight:500}
+.card.hero{border-color:var(--bid)} .card.hero .v{color:var(--bid); font-size:31px}
+.card.bad{border-color:var(--ask)} .card.bad .v{color:var(--ask)}
+.card.gold{border-color:var(--gold)} .card.gold .v{color:var(--gold)}
+.card.blue{border-color:var(--blue)} .card.blue .v{color:var(--blue)}
+.callout{background:var(--panel2); border-left:3px solid var(--gold); border-radius:0 var(--r) var(--r) 0; padding:12px 15px; font-size:14.5px; line-height:1.5}
+.callout b{color:var(--gold)}
+.callout.warn{border-left-color:var(--ask)} .callout.warn b{color:var(--ask)}
+.callout.good{border-left-color:var(--bid)} .callout.good b{color:var(--bid)}
+.callout.blue{border-left-color:var(--blue)} .callout.blue b{color:var(--blue)}
+.corner{position:absolute; right:378px; bottom:14px; z-index:5; background:var(--panel2); border:1px solid var(--line2); border-radius:8px; padding:8px 14px; text-align:right; transition:transform .4s, border-color .4s}
+.corner .k{font-size:9px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2)}
+.corner .v{font-family:var(--mono); font-size:19px; font-weight:700; color:var(--gold); font-variant-numeric:tabular-nums}
+.corner.spot{transform:scale(1.35); transform-origin:bottom right; border-color:var(--gold)}
+.controls{display:flex; align-items:center; gap:28px; flex-wrap:wrap; padding:12px 26px; border-top:1px solid var(--line); background:var(--panel); min-height:55px}
+.ctl{display:flex; align-items:center; gap:12px}
+.ctl.hidden{display:none}
+.ctl .lbl{font-size:11px; letter-spacing:1.3px; text-transform:uppercase; color:var(--mut2); white-space:nowrap}
+.ctl .val{font-family:var(--mono); font-size:16px; font-weight:700; min-width:64px; color:var(--ask)}
+.model{margin-left:auto; font-size:12px; color:var(--mut); white-space:nowrap}
+.model b{font-weight:700} .model .s{color:var(--ask)} .model .l{color:var(--txt)}
+input[type=range]{-webkit-appearance:none; appearance:none; width:260px; height:6px; border-radius:3px; background:linear-gradient(to right, var(--ask) var(--fill,0%), var(--line2) var(--fill,0%)); outline:none; cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:18px; height:18px; border-radius:50%; background:var(--txt); border:3px solid var(--ask); cursor:grab}
+input[type=range]:focus-visible{outline:2px solid var(--txt); outline-offset:3px}
+.stepper{display:grid; grid-template-columns:auto 1fr auto auto; align-items:center; gap:18px; padding:11px 20px; border-top:1px solid var(--line); background:var(--panel)}
+.scn-count{font-family:var(--mono); font-size:14px; color:var(--mut); white-space:nowrap}
+.scn-caption{font-size:15px} .scn-caption b{color:var(--accent)}
+.disclaimer{font-size:11px; color:var(--mut2); white-space:nowrap}
+.scn-nav{display:flex; gap:8px}
+.scn-nav button{font-family:var(--mono); font-size:13px; padding:7px 14px; border-radius:6px; border:1px solid var(--line2); background:var(--panel2); color:var(--mut); cursor:pointer}
+.scn-nav button:hover{border-color:var(--accent); color:var(--accent)}
+.build{position:absolute; left:26px; bottom:8px; font-family:var(--mono); font-size:10px; color:var(--mut2)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="name">MONEY <b>INTERNALS</b></span></div>
+  <span class="ticker">SMALL CAP vs LARGE CAP · EVERY BIG FALL</span>
+  <span class="ticker year" id="st-range"></span>
+  <div class="stats">
+    <div class="stat-h"><span class="k">Big sell-offs</span><span class="v tnum" id="st-n">—</span></div>
+    <div class="stat-h"><span class="k">Small fell further</span><span class="v tnum" id="st-fell">—</span></div>
+    <div class="stat-h"><span class="k">Small bounced harder</span><span class="v tnum" id="st-bounce">—</span></div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="main">
+    <h1 id="title"></h1>
+    <div class="sub" id="sub"></div>
+    <div class="viz"><svg id="viz" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet"></svg></div>
+  </div>
+  <div class="side" id="side"></div>
+  <div class="corner" id="corner"><div class="k" id="cornerK"></div><div class="v" id="cornerV">—</div></div>
+  <div class="build" id="build"></div>
+</div>
+
+<div class="controls">
+  <div class="ctl" id="ctl-f">
+    <span class="lbl">A fall of</span>
+    <input type="range" id="fRange" min="0" max="95" step="0.1" value="0">
+    <span class="val tnum" id="fVal">0%</span>
+  </div>
+  <span class="model"><b class="s">Small</b> = the smallest 30% of US stocks · <b class="l">large</b> = the biggest 30% · month-end, with dividends</span>
+</div>
+
+<div class="stepper">
+  <span class="scn-count" id="scnCount"></span>
+  <span class="scn-caption" id="scnCaption"></span>
+  <span class="disclaimer">Data: Ken French Data Library (CRSP), US stocks 1926–2026 · not the Russell 2000 or S&amp;P 500 · past patterns, not a forecast · educational — not advice</span>
+  <div class="scn-nav"><button id="prev">← Prev</button><button id="next">Next →</button></div>
+</div>
+
+<script>
+/* ============================================================
+   BUILD caps-b01 — "Small cap vs large cap: every big fall since 1926" (arc #3, shows/small-caps/)
+   Key map:
+     → / Next  advance (in-scene reveals on scene 5)  ← back  1–5 jump
+     S  scene 2: step to the next sell-off (highlights it, numbers in the side panel)
+     G  scene 4: sweep the fall to the script's next value: 50% → 2007–09's 57.8% → 1929–32's 90.5% → 1987's 33.6%
+     Space  pause the hook   R  reset scene
+   Data: DATA below is generated by make_page_data.py from Ken French's
+     Portfolios_Formed_on_ME.csv (202608 file): value-weighted total returns, month-end,
+     small = Lo 30, large = Hi 30 by NYSE size breakpoints. Sell-off = large caps down 15%+
+     from a peak. "Fell" = each group's own worst fall around it (same months: 8 of 13).
+     "Year after" = 12 months from the large-cap low.
+   sanity(): 13 sell-offs · small fell further 12 · bounced harder 11 (1987 by 0.1 pt)
+     · a fall of f needs a rise of 1/(1−f) − 1: 50% → 100%, 57.8% → 137%, 90.5% → 953%
+   ============================================================ */
+const BUILD='caps-b01';
+/* generated by make_page_data.py — do not edit by hand */
+const DATA={"start":"192607","end":"202608","months":1202,"smallDD":[0.0,0.0,-1.5,-4.6,-4.8,-1.1,0.0,0.0,-2.2,0.0,0.0,-2.5,0.0,-0.3,0.0,-4.6,0.0,0.0,0.0,-2.8,0.0,0.0,0.0,-9.3,-9.9,-7.2,-2.7,-0.4,0.0,-2.5,-0.8,-0.2,-3.7,-4.3,-18.4,-13.1,-13.2,-13.6,-18.3,-36.7,-44.8,-48.2,-41.5,-39.9,-32.5,-35.1,-38.7,-50.7,-49.4,-50.8,-60.6,-64.8,-65.9,-71.7,-66.8,-60.7,-62.9,-69.3,-72.8,-68.4,-70.3,-71.6,-80.9,-79.6,-81.4,-85.6,-84.3,-83.6,-85.7,-88.6,-90.4,-90.5,-85.7,-73.7,-76.9,-81.8,-83.7,-85.3,-85.1,-88.0,-86.4,-79.5,-62.2,-52.3,-54.9,-52.4,-60.6,-65.5,-64.3,-63.3,-49.9,-47.3,-46.4,-45.5,-52.2,-53.0,-64.4,-59.8,-60.8,-61.4,-55.6,-54.2,-56.1,-59.4,-64.2,-60.2,-59.7,-58.8,-52.8,-46.6,-45.5,-40.0,-26.9,-23.4,-6.2,-0.1,0.0,-17.2,-13.4,-14.9,-8.3,-7.3,-3.2,0.0,0.0,0.0,0.0,0.0,0.0,-14.0,-17.1,-26.3,-18.5,-23.1,-40.6,-46.9,-53.9,-60.6,-58.1,-56.1,-69.5,-63.0,-65.7,-55.9,-48.9,-53.4,-54.9,-46.6,-49.7,-49.1,-53.9,-52.1,-62.2,-61.8,-58.4,-62.4,-57.5,-63.1,-42.1,-45.0,-52.2,-52.2,-53.5,-51.3,-49.6,-46.8,-63.3,-61.1,-60.1,-58.8,-57.1,-54.8,-54.7,-55.9,-56.2,-57.1,-55.9,-58.4,-57.8,-54.6,-47.2,-47.5,-49.0,-51.9,-54.2,-59.5,-53.2,-54.2,-56.6,-58.6,-58.2,-57.6,-55.6,-54.1,-51.5,-45.9,-47.1,-46.0,-34.1,-22.6,-10.8,-4.6,0.0,0.0,-7.7,-8.4,-4.6,-4.9,-14.5,-5.1,0.0,0.0,0.0,-3.5,0.0,0.0,-1.5,0.0,-0.0,0.0,0.0,0.0,0.0,0.0,-7.3,0.0,0.0,0.0,-3.8,0.0,0.0,0.0,0.0,0.0,0.0,-7.0,-3.4,0.0,0.0,-5.5,-10.4,-18.2,-30.8,-32.0,-32.4,-29.8,-26.7,-26.6,-29.7,-35.9,-39.2,-36.0,-31.0,-32.6,-31.7,-28.9,-31.4,-30.1,-30.9,-35.7,-29.3,-26.4,-19.7,-19.9,-24.6,-25.4,-28.8,-25.0,-33.8,-34.0,-32.2,-35.6,-31.2,-33.0,-37.0,-37.8,-34.1,-32.7,-29.8,-26.1,-26.3,-20.3,-16.1,-14.0,-14.8,-9.7,-7.6,-16.2,-9.5,-5.2,-1.0,-1.5,0.0,0.0,0.0,0.0,-4.9,-1.0,-4.4,-10.7,-5.8,-0.6,0.0,-2.4,-2.4,-2.1,-0.4,-2.8,-0.5,-5.3,-3.6,-0.7,0.0,0.0,-1.4,-2.6,0.0,0.0,0.0,0.0,-1.6,-3.6,-2.9,-6.8,-5.6,-11.3,-13.3,-10.9,-9.1,-11.4,-4.7,-3.7,-1.0,-0.4,0.0,0.0,0.0,0.0,0.0,-0.5,0.0,0.0,0.0,0.0,-0.2,0.0,0.0,0.0,0.0,0.0,-0.2,-1.5,0.0,0.0,-1.0,0.0,0.0,0.0,-4.5,-3.2,0.0,-1.2,-3.7,-3.0,-2.7,-1.0,0.0,-2.4,-0.8,0.0,0.0,0.0,0.0,-4.3,-8.8,-15.7,-15.3,-19.5,-9.9,-10.8,-7.5,-4.0,-0.2,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-1.1,-5.4,-3.8,-3.1,-0.3,-2.7,-1.8,-4.6,-6.8,-5.2,-3.2,-5.1,-2.0,-7.9,-10.7,-7.7,-4.3,0.0,0.0,0.0,0.0,0.0,-5.0,-4.7,-3.9,-7.3,-5.5,-0.1,-0.5,0.0,0.0,-0.1,-7.2,-16.5,-23.3,-17.5,-14.8,-20.9,-23.6,-12.4,-14.1,-5.5,-6.2,-4.4,-0.4,0.0,-1.4,-2.3,0.0,-1.3,-0.1,-1.6,-2.6,0.0,0.0,0.0,-0.4,0.0,0.0,0.0,-0.6,0.0,0.0,0.0,-1.6,0.0,0.0,0.0,0.0,-0.9,-10.2,-7.4,-3.5,-0.9,0.0,0.0,0.0,0.0,0.0,-1.4,0.0,-10.9,-10.6,-12.0,-21.6,-23.1,-25.4,-22.1,-20.5,-5.6,-1.0,0.0,0.0,-0.9,0.0,0.0,0.0,0.0,-2.2,-2.3,0.0,0.0,-6.6,-7.6,0.0,0.0,0.0,-2.6,0.0,0.0,0.0,0.0,0.0,-0.6,-10.3,-7.5,-6.7,-5.9,-18.1,-27.0,-23.3,-25.2,-17.8,-22.8,-28.6,-31.6,-29.1,-31.6,-43.8,-49.1,-53.3,-50.6,-47.3,-39.3,-43.8,-44.1,-39.2,-30.6,-27.4,-23.2,-21.4,-26.0,-27.6,-32.2,-29.2,-29.6,-34.0,-36.9,-28.7,-20.5,-17.4,-17.7,-17.1,-19.3,-21.9,-25.0,-25.0,-27.9,-29.4,-25.9,-27.6,-30.7,-36.6,-38.2,-42.7,-47.8,-49.5,-43.2,-46.3,-41.6,-41.9,-52.9,-54.5,-49.1,-48.9,-48.8,-51.8,-55.4,-56.8,-59.1,-62.5,-65.6,-62.5,-64.5,-67.0,-58.2,-56.2,-53.0,-51.3,-47.3,-43.6,-44.4,-47.6,-49.4,-48.5,-47.3,-48.0,-37.9,-31.4,-30.5,-31.3,-32.9,-31.2,-31.0,-32.4,-30.9,-32.3,-30.1,-23.0,-20.2,-20.4,-19.9,-18.4,-18.2,-13.3,-12.4,-12.8,-11.6,-13.7,-6.6,-4.2,-5.6,-3.0,0.0,0.0,0.0,0.0,0.0,0.0,-0.6,-21.1,-16.7,-15.2,-7.2,-9.2,-1.3,0.0,-1.3,0.0,0.0,0.0,-0.6,-11.4,-4.4,0.0,0.0,-1.0,-19.3,-14.2,-8.0,-3.8,0.0,0.0,0.0,0.0,0.0,-4.1,-4.8,-4.9,0.0,0.0,0.0,-1.7,-4.2,-12.0,-20.0,-13.6,-11.4,-12.9,-14.8,-18.6,-19.4,-15.1,-16.9,-19.3,-20.9,-16.1,-13.0,-0.7,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-2.2,-5.8,-5.0,-10.7,-7.7,-9.0,-9.4,-14.3,-13.6,-14.7,-18.9,-17.2,-21.2,-13.3,-13.6,-15.2,-17.6,-16.5,-5.9,-2.9,-4.4,-5.2,-2.1,-0.8,0.0,-0.4,-6.1,-3.4,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-8.7,-7.3,-13.2,-11.0,-11.7,-14.6,-5.1,0.0,0.0,-2.1,-2.4,-0.6,0.0,0.0,-1.9,-30.6,-34.1,-31.1,-27.1,-22.2,-19.0,-17.6,-19.5,-14.6,-14.8,-16.7,-15.0,-16.0,-19.1,-16.5,-12.4,-11.8,-9.9,-6.9,-3.9,-5.4,-2.1,0.0,0.0,-5.7,-5.6,-6.2,-13.3,-10.9,-8.0,-10.3,-4.7,-4.6,-8.6,-20.6,-27.6,-32.3,-29.1,-28.0,-22.3,-13.1,-6.6,-5.8,-2.2,-6.4,-3.3,-0.1,0.0,0.0,-4.2,0.0,0.0,0.0,-3.3,-8.0,-7.8,-12.1,-9.2,-11.9,-10.0,-7.5,0.0,0.0,0.0,-3.2,-0.2,-2.9,0.0,0.0,0.0,0.0,0.0,0.0,-3.1,-1.5,0.0,-0.7,-6.3,-6.9,-7.7,-10.7,-9.7,-5.7,-4.6,-4.4,-7.9,-7.9,-6.8,-3.8,-1.5,0.0,0.0,0.0,0.0,0.0,0.0,-5.3,-2.6,-0.4,0.0,0.0,0.0,0.0,0.0,-4.2,-13.8,-9.6,-6.5,-8.2,-5.7,-4.0,0.0,-2.8,-7.8,-10.3,-0.5,0.0,0.0,0.0,0.0,-3.7,-5.4,-6.2,-6.8,-0.6,0.0,0.0,-4.8,-5.3,-11.6,-30.5,-27.3,-25.4,-19.7,-16.7,-13.3,-19.5,-21.0,-13.3,-11.6,-5.6,-5.2,-8.5,-9.3,-10.1,-1.2,0.0,0.0,0.0,-8.7,-21.3,-28.1,-15.8,-17.2,-12.4,-15.5,-20.7,-28.2,-26.5,-16.6,-20.5,-22.9,-18.2,-11.4,-7.2,-11.3,-14.4,-26.4,-21.6,-15.8,-9.6,-9.2,-12.8,-5.3,-3.7,-6.8,-9.1,-22.6,-23.4,-29.4,-26.9,-18.6,-23.3,-24.4,-26.5,-25.7,-18.2,-7.8,-3.9,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-0.2,-5.0,-4.7,-0.7,-8.5,-9.4,-5.0,-3.1,0.0,0.0,-4.1,-3.1,-6.4,-12.3,-7.0,-2.9,0.0,-1.5,-1.1,-4.0,0.0,0.0,0.0,0.0,0.0,0.0,-5.6,-6.0,-9.5,-6.8,-6.0,-0.5,0.0,0.0,0.0,-0.5,0.0,0.0,0.0,-0.6,-7.3,-6.5,-5.4,-3.9,-11.9,-12.4,-19.0,-21.9,-22.3,-20.7,-17.4,-24.5,-21.1,-18.1,-24.8,-40.6,-48.4,-45.8,-51.7,-57.8,-53.6,-45.8,-43.5,-41.4,-35.3,-32.3,-27.4,-33.5,-31.8,-25.8,-28.0,-24.5,-18.4,-12.2,-19.4,-26.1,-21.4,-28.1,-19.5,-15.5,-12.5,-4.7,-5.2,-0.1,0.0,0.0,-3.0,-5.3,-8.4,-17.9,-27.0,-16.7,-17.5,-17.1,-10.4,-8.2,-5.5,-7.4,-13.8,-8.7,-10.5,-7.8,-3.4,-6.4,-5.8,-2.3,0.0,0.0,0.0,-0.3,0.0,0.0,0.0,-2.9,0.0,0.0,0.0,0.0,-1.7,0.0,-0.3,-5.3,-5.8,-0.4,-7.2,-3.1,-8.6,-3.2,-3.5,0.0,-4.3,0.0,0.0,-2.4,0.0,0.0,-3.8,-8.8,-14.6,-9.8,-6.3,-11.0,-20.3,-20.4,-14.7,-11.9,-10.8,-10.7,-5.2,-3.1,0.0,-5.9,0.0,0.0,-0.5,0.0,0.0,0.0,-2.4,0.0,-0.4,-1.8,0.0,-0.0,0.0,0.0,0.0,-3.2,-1.7,-0.1,0.0,0.0,0.0,0.0,-2.9,-14.2,-14.2,-24.5,-16.7,-11.9,-14.0,-11.9,-18.5,-12.9,-14.2,-19.6,-17.5,-16.7,-12.4,-7.4,-12.3,-19.0,-38.0,-28.1,-23.6,-19.1,-18.6,-14.0,-17.5,-15.9,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-5.3,-2.7,-5.3,-3.2,-8.7,-7.5,-15.6,-14.7,-13.6,-21.4,-21.3,-26.7,-19.8,-20.0,-27.5,-21.1,-21.7,-25.2,-16.9,-19.4,-25.0,-26.4,-25.7,-20.8,-15.9,-21.9,-26.9,-32.4,-26.9,-16.7,-20.2,-16.5,-14.4,-20.6,-16.6,-18.9,-9.4,-12.1,-12.2,-12.1,-2.5,-9.0,-8.5,-13.6,-21.5,-22.8,-17.5,-12.5,-10.5,-2.4,0.0,0.0,0.0,0.0,0.0,0.0,-3.2,0.0,0.0,0.0,-2.0,0.0],"largeDD":[0.0,0.0,0.0,-2.9,-0.1,0.0,-0.0,0.0,0.0,0.0,0.0,-2.2,0.0,0.0,0.0,-4.1,0.0,0.0,-0.9,-2.0,0.0,0.0,0.0,-4.0,-3.0,0.0,0.0,0.0,0.0,0.0,0.0,-0.2,0.0,0.0,-4.9,0.0,0.0,0.0,-5.1,-23.3,-32.6,-31.1,-27.6,-25.5,-20.0,-21.5,-22.2,-34.1,-31.2,-30.8,-39.3,-44.6,-46.1,-49.9,-46.9,-41.2,-44.9,-50.0,-56.6,-50.5,-53.7,-53.4,-66.7,-64.1,-67.3,-71.6,-72.1,-70.4,-73.7,-78.4,-82.9,-83.0,-77.4,-69.4,-70.2,-73.9,-75.4,-74.2,-73.8,-77.8,-77.2,-68.6,-62.7,-58.0,-62.0,-57.4,-61.8,-64.9,-61.2,-60.5,-56.1,-57.3,-57.3,-58.1,-61.0,-59.8,-63.9,-62.0,-62.1,-62.7,-59.7,-59.6,-61.0,-61.7,-62.9,-59.5,-58.0,-55.5,-52.3,-51.2,-50.0,-46.5,-44.2,-41.9,-38.2,-36.7,-36.1,-41.0,-37.9,-36.1,-32.0,-31.5,-31.0,-25.8,-23.8,-24.0,-21.8,-21.1,-21.4,-26.9,-27.3,-30.0,-23.8,-27.6,-36.8,-42.7,-47.3,-49.2,-49.1,-46.1,-58.8,-53.0,-54.7,-44.0,-40.2,-41.6,-41.0,-36.8,-37.8,-35.3,-38.9,-36.9,-43.9,-44.1,-40.4,-43.4,-37.9,-41.7,-32.9,-33.2,-35.2,-33.4,-35.0,-34.2,-32.9,-33.0,-47.2,-43.7,-42.0,-40.7,-39.4,-37.7,-38.9,-38.3,-41.0,-41.8,-41.3,-44.5,-43.7,-40.4,-37.3,-37.4,-37.9,-41.1,-42.2,-44.9,-44.9,-46.3,-49.9,-52.1,-49.0,-47.6,-45.8,-44.8,-43.4,-39.7,-39.5,-36.3,-32.2,-28.3,-24.4,-24.2,-20.1,-18.5,-22.1,-21.0,-19.2,-20.2,-24.6,-20.1,-18.9,-18.6,-16.8,-18.0,-14.1,-9.8,-11.2,-10.0,-9.9,-9.7,-8.1,-4.9,-3.2,0.0,-3.6,0.0,0.0,-0.2,-2.1,0.0,0.0,0.0,0.0,0.0,0.0,-5.5,-0.1,0.0,0.0,-3.5,-5.8,-11.5,-19.8,-21.0,-21.0,-17.1,-16.2,-17.2,-18.3,-21.7,-22.1,-18.0,-14.9,-16.4,-17.0,-15.0,-16.5,-13.8,-17.4,-20.7,-14.4,-11.3,-4.8,-4.6,-9.3,-9.0,-11.4,-6.0,-14.5,-11.4,-11.2,-13.6,-10.3,-11.7,-14.1,-13.7,-8.9,-6.5,-3.7,-0.6,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-5.5,-4.6,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-1.7,0.0,-2.2,-4.3,0.0,0.0,0.0,-2.3,-1.8,0.0,0.0,-2.6,0.0,-4.9,-1.7,0.0,0.0,-0.8,-2.7,-3.1,0.0,0.0,-0.6,-0.9,-2.2,-4.9,-4.2,-5.6,-3.1,-7.3,-6.7,-2.2,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-2.5,0.0,-1.8,0.0,0.0,0.0,0.0,-0.1,0.0,0.0,0.0,0.0,0.0,-0.1,-2.7,0.0,0.0,-2.8,0.0,0.0,0.0,-5.1,-1.5,0.0,-3.2,-8.2,-7.5,-7.0,-3.8,-7.4,-9.1,-6.9,-2.4,0.0,-0.5,0.0,-4.8,-10.3,-13.7,-11.4,-14.6,-11.0,-12.4,-9.5,-6.6,-4.5,-1.7,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-0.2,0.0,-1.2,-5.6,-4.2,-2.4,0.0,-6.9,-5.6,-6.6,-8.0,-5.0,-2.8,-5.0,-2.0,-7.7,-7.9,-3.5,0.0,0.0,0.0,0.0,0.0,0.0,-2.6,0.0,0.0,-1.8,0.0,0.0,0.0,-3.9,-1.9,-2.4,-8.6,-16.0,-23.0,-17.9,-16.1,-20.1,-19.5,-10.7,-9.2,-4.8,-7.0,-3.6,0.0,0.0,-1.8,-1.8,0.0,-1.2,0.0,-0.5,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-1.2,0.0,0.0,0.0,0.0,0.0,0.0,-1.3,0.0,-0.4,-4.9,-3.5,-0.8,0.0,0.0,-0.4,0.0,0.0,-1.5,-3.6,-1.6,-6.0,-7.2,-8.4,-14.9,-15.3,-10.9,-9.8,-9.6,-2.9,-2.2,0.0,0.0,-4.6,-2.9,0.0,-0.7,0.0,-2.7,-2.0,0.0,-4.2,-6.8,-6.0,0.0,0.0,0.0,-1.7,-0.3,0.0,0.0,0.0,-4.1,-4.7,-8.9,-5.8,-3.7,-3.3,-8.4,-13.8,-9.5,-11.8,-7.4,-10.1,-11.4,-18.3,-13.2,-13.2,-21.2,-25.5,-29.1,-23.8,-20.1,-17.4,-18.3,-13.8,-8.8,-5.0,-3.7,0.0,0.0,-3.7,-3.1,-6.9,-3.2,-3.6,-7.2,-6.9,0.0,0.0,0.0,0.0,0.0,0.0,-2.0,-1.9,0.0,-0.3,0.0,0.0,0.0,-2.0,-5.5,-5.7,-9.7,-10.9,-11.4,-7.3,-10.1,-6.1,-6.2,-16.5,-15.1,-16.0,-15.9,-17.9,-21.4,-23.8,-25.2,-31.2,-37.2,-44.5,-34.6,-37.2,-38.5,-31.0,-26.6,-24.8,-21.2,-17.0,-12.9,-18.7,-20.3,-23.2,-18.3,-15.7,-16.7,-7.0,-7.7,-4.9,-6.0,-6.7,-2.5,-3.2,-3.1,-0.7,-2.6,-2.5,0.0,-4.7,-6.3,-7.6,-7.4,-8.7,-4.2,-5.7,-7.1,-7.1,-11.1,-7.7,-7.3,-12.9,-14.3,-12.1,-4.4,-3.2,-4.7,0.0,0.0,-0.7,-9.7,-7.0,-5.5,-1.5,-4.4,0.0,0.0,-1.4,0.0,0.0,0.0,0.0,-6.4,-1.2,0.0,0.0,0.0,-10.1,-5.8,-0.6,0.0,0.0,0.0,0.0,0.0,0.0,-3.0,-7.8,-6.0,-2.5,-4.8,-4.2,-4.6,-4.3,-9.4,-14.4,-9.5,-5.1,-8.0,-9.9,-14.6,-15.3,-11.9,-14.3,-15.9,-17.9,-7.4,-6.2,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-0.6,0.0,-3.5,-2.1,-0.7,-2.3,-0.1,-0.8,-1.5,-4.8,-3.6,-2.9,-7.8,-5.2,-6.3,0.0,0.0,0.0,-0.9,0.0,0.0,0.0,0.0,-0.1,0.0,0.0,-0.8,-1.2,-4.6,0.0,0.0,0.0,0.0,0.0,0.0,-1.3,0.0,0.0,-5.2,0.0,-8.7,-3.6,-1.6,-4.3,0.0,0.0,0.0,-1.4,-0.7,0.0,0.0,0.0,-2.2,-22.6,-29.0,-24.0,-20.5,-16.9,-19.5,-18.8,-18.2,-14.3,-14.7,-17.2,-13.6,-11.5,-12.8,-11.2,-5.0,-7.2,-5.0,-0.1,0.0,-0.4,0.0,0.0,-0.1,-2.3,-0.4,0.0,-7.0,-5.7,-3.5,-5.9,0.0,-0.6,-1.3,-10.0,-14.4,-14.7,-9.0,-6.3,-2.0,0.0,0.0,0.0,0.0,-4.6,-0.0,0.0,-1.4,0.0,-3.6,0.0,-1.8,-0.8,-2.9,-0.3,0.0,-1.6,0.0,-2.0,-0.7,0.0,0.0,0.0,0.0,0.0,0.0,-2.8,-0.1,0.0,-0.3,0.0,-0.4,0.0,-1.1,0.0,0.0,-2.8,-7.0,-5.9,-4.3,-6.8,-3.8,0.0,-2.4,-0.3,-3.6,-2.4,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-0.4,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-4.7,-2.3,0.0,0.0,0.0,-1.8,0.0,0.0,-4.4,0.0,0.0,0.0,0.0,-5.0,0.0,-3.1,0.0,0.0,0.0,0.0,0.0,0.0,-1.9,0.0,-1.1,-15.7,-10.0,-3.0,0.0,0.0,0.0,-3.3,0.0,0.0,-2.3,0.0,-3.4,-4.0,-6.6,-0.1,0.0,0.0,-4.6,-4.8,0.0,-3.9,-6.6,-3.7,-5.5,0.0,-4.9,-6.6,-15.7,-14.9,-12.0,-20.5,-26.0,-20.0,-19.5,-21.2,-22.4,-27.3,-33.3,-31.8,-26.5,-25.8,-26.7,-28.2,-25.4,-29.9,-30.5,-35.6,-40.3,-39.9,-46.2,-41.5,-38.3,-41.9,-43.4,-44.4,-43.8,-39.3,-36.0,-35.1,-34.0,-32.7,-33.5,-29.7,-29.0,-25.6,-24.2,-23.1,-24.3,-25.3,-24.4,-23.2,-25.9,-25.6,-24.8,-23.7,-20.6,-17.9,-19.9,-18.2,-19.5,-21.0,-18.3,-18.2,-15.1,-15.8,-15.2,-16.4,-13.2,-13.3,-11.1,-11.0,-9.8,-8.8,-11.1,-11.0,-10.6,-8.4,-6.2,-3.0,-1.2,0.0,0.0,-1.9,-0.9,0.0,0.0,-1.7,-4.5,-3.0,0.0,0.0,-4.0,-4.5,-10.2,-12.9,-13.5,-9.6,-8.2,-16.0,-16.8,-15.7,-23.3,-35.8,-40.3,-39.5,-44.2,-49.8,-45.4,-40.5,-37.2,-37.1,-32.4,-30.3,-27.7,-28.9,-24.7,-23.2,-25.8,-23.5,-19.0,-18.0,-24.4,-28.3,-23.3,-26.6,-20.0,-16.9,-16.8,-11.4,-9.5,-6.5,-6.4,-3.5,-4.6,-6.2,-8.1,-13.0,-19.0,-10.3,-10.5,-9.7,-5.5,-1.2,0.0,-0.7,-6.6,-3.0,-1.9,0.0,0.0,-1.8,-1.2,-0.3,0.0,0.0,0.0,0.0,0.0,-1.4,0.0,-2.7,0.0,0.0,0.0,0.0,-3.5,0.0,0.0,0.0,0.0,0.0,-1.3,0.0,-1.4,0.0,0.0,-0.3,-3.4,0.0,-1.6,-0.6,0.0,-1.8,0.0,-6.0,-8.5,-1.0,-0.7,-2.4,-7.7,-7.9,-1.6,-0.9,0.0,-0.0,0.0,0.0,0.0,-1.5,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-3.5,-6.1,-5.7,-3.5,-2.9,0.0,0.0,0.0,-6.9,-5.2,-13.7,-6.7,-3.6,-1.9,0.0,-6.6,0.0,0.0,-2.0,-0.4,0.0,0.0,0.0,0.0,-8.0,-19.1,-8.4,-3.7,-1.4,0.0,0.0,-3.7,-6.2,0.0,0.0,-0.8,0.0,0.0,0.0,0.0,0.0,0.0,0.0,-4.6,0.0,-1.0,0.0,-5.6,-8.2,-5.1,-14.0,-14.2,-21.2,-13.7,-16.9,-24.5,-18.5,-14.2,-19.4,-14.2,-16.2,-13.1,-11.9,-11.2,-5.2,-2.0,-3.5,-8.0,-10.1,-1.8,0.0,0.0,0.0,0.0,-3.9,0.0,0.0,0.0,0.0,0.0,-0.6,0.0,-2.3,0.0,-1.7,-7.6,-8.0,-2.0,0.0,0.0,0.0,0.0,0.0,-0.0,-0.0,0.0,-1.1,-5.9,0.0,0.0,-1.2,-1.5,0.0],"selloffs":[{"peak":37,"low":71,"label":"1932","largeFell":-83,"smallFell":-91,"smallFellSameMonths":-89,"smallPeak":28,"smallLow":71,"largeAfter":147.6,"smallAfter":401.9},{"peak":238,"low":250,"label":"1947","largeFell":-22,"smallFell":-39,"smallFellSameMonths":-39,"smallPeak":238,"smallLow":250,"largeAfter":22.1,"smallAfter":32.0},{"peak":425,"low":431,"label":"1962","largeFell":-23,"smallFell":-24,"smallFellSameMonths":-21,"smallPeak":427,"smallLow":435,"largeAfter":31.3,"smallAfter":33.7},{"peak":474,"low":482,"label":"1966","largeFell":-15,"smallFell":-25,"smallFellSameMonths":-15,"smallPeak":477,"smallLow":483,"largeAfter":30.0,"smallAfter":86.2},{"peak":508,"low":527,"label":"1970","largeFell":-29,"smallFell":-53,"smallFellSameMonths":-53,"smallPeak":509,"smallLow":527,"largeAfter":41.7,"smallAfter":54.9},{"peak":557,"low":578,"label":"1974","largeFell":-44,"smallFell":-60,"smallFellSameMonths":-52,"smallPeak":549,"smallLow":581,"largeAfter":38.2,"smallAfter":47.2},{"peak":652,"low":672,"label":"1982","largeFell":-18,"smallFell":-21,"smallFellSameMonths":-13,"smallPeak":658,"smallLow":672,"largeAfter":56.6,"smallAfter":101.1},{"peak":733,"low":736,"label":"1987","largeFell":-29,"smallFell":-34,"smallFellSameMonths":-34,"smallPeak":733,"smallLow":736,"largeAfter":22.8,"smallAfter":22.9},{"peak":863,"low":865,"label":"1998","largeFell":-16,"smallFell":-31,"smallFellSameMonths":-27,"smallPeak":861,"smallLow":865,"largeAfter":39.7,"smallAfter":31.7},{"peak":889,"low":914,"label":"2002","largeFell":-46,"smallFell":-29,"smallFellSameMonths":-19,"smallPeak":883,"smallLow":914,"largeAfter":23.7,"smallAfter":55.2},{"peak":975,"low":991,"label":"2009","largeFell":-50,"smallFell":-58,"smallFellSameMonths":-56,"smallPeak":970,"smallLow":991,"largeAfter":52.3,"smallAfter":78.7},{"peak":1122,"low":1124,"label":"2020","largeFell":-19,"smallFell":-33,"smallFellSameMonths":-29,"smallPeak":1121,"smallLow":1124,"largeAfter":60.2,"smallAfter":126.9},{"peak":1145,"low":1154,"label":"2022","largeFell":-24,"smallFell":-28,"smallFellSameMonths":-22,"smallPeak":1139,"smallLow":1154,"largeAfter":21.8,"smallAfter":0.8}],"smallFalls":[{"peak":28,"low":71,"fall":-90.5,"needed":952.7,"after":401.9,"leftVsPeak":-52.3,"yearsBack":3.8},{"peak":128,"low":140,"fall":-69.5,"needed":228.4,"after":24.2,"leftVsPeak":-62.2,"yearsBack":5.2},{"peak":238,"low":250,"fall":-39.2,"needed":64.4,"after":32.0,"leftVsPeak":-19.7,"yearsBack":3.5},{"peak":477,"low":483,"fall":-25.4,"needed":34.0,"after":87.6,"leftVsPeak":40.0,"yearsBack":0.4},{"peak":509,"low":581,"fall":-67.0,"needed":203.5,"after":57.9,"leftVsPeak":-48.0,"yearsBack":3.2},{"peak":733,"low":736,"fall":-34.1,"needed":51.8,"after":22.9,"leftVsPeak":-19.1,"yearsBack":1.8},{"peak":758,"low":771,"fall":-32.3,"needed":47.6,"after":54.1,"leftVsPeak":4.4,"yearsBack":0.9},{"peak":861,"low":865,"fall":-30.5,"needed":43.9,"after":31.7,"leftVsPeak":-8.5,"yearsBack":1.3},{"peak":883,"low":914,"fall":-29.4,"needed":41.7,"after":55.2,"leftVsPeak":9.6,"yearsBack":0.8},{"peak":970,"low":991,"fall":-57.8,"needed":136.8,"after":78.7,"leftVsPeak":-24.5,"yearsBack":2.1},{"peak":1017,"low":1022,"fall":-27.0,"needed":37.0,"after":32.3,"leftVsPeak":-3.4,"yearsBack":1.3},{"peak":1105,"low":1124,"fall":-38.0,"needed":61.4,"after":126.9,"leftVsPeak":40.6,"yearsBack":0.7},{"peak":1139,"low":1167,"fall":-32.4,"needed":47.9,"after":30.1,"leftVsPeak":-12.1,"yearsBack":1.9}]};
+
+const $=id=>document.getElementById(id);
+const C={panel:'#171F2A',line:'#232A33',line2:'#2C3540',txt:'#E6EAF0',mut:'#8B94A3',mut2:'#5C6675',bid:'#2EBD85',ask:'#F6465D',gold:'#E8B33C',blue:'#4A9EDA',ink:'#0B0E13',large:'#9AA6B8'};
+const NS='http://www.w3.org/2000/svg';
+const svgEl=(t,a)=>{const e=document.createElementNS(NS,t); for(const k in a) e.setAttribute(k,a[k]); return e;};
+function txt(svg,x,y,s,size=14,fill=C.txt,anchor='start',weight=500,mono=false){const t=svgEl('text',{x,y,'font-size':size,fill,'text-anchor':anchor,'font-weight':weight,'font-family':mono?"'JetBrains Mono',monospace":"'Inter',sans-serif"}); t.textContent=s; svg.appendChild(t); return t;}
+function boxed(svg,x,y,s,size,fill,anchor){const t=txt(svg,x,y,s,size,fill,anchor,700,true); const b=t.getBBox(); svg.insertBefore(svgEl('rect',{x:b.x-7,y:b.y-4,width:b.width+14,height:b.height+8,rx:5,fill:C.panel,stroke:fill,'stroke-width':1}),t); return t;}
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const ease=p=>p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+const sgn=v=>(v>0?'+':v<0?'−':'')+Math.round(Math.abs(v))+'%';   // rounds half away from zero
+const sgnPct=v=>(v>0?'+':v<0?'−':'')+Math.round(Math.abs(v)).toLocaleString('en-GB')+'%';
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const Y0=+DATA.start.slice(0,4), M0=+DATA.start.slice(4)-1;
+const ym=i=>({y:Y0+Math.floor((M0+i)/12), m:(M0+i)%12});
+const mLabel=i=>{const d=ym(i); return MONTHS[d.m]+' '+d.y;};
+const idxOf=(y,m)=>(y-Y0)*12+(m-M0);
+const SO=DATA.selloffs, N=SO.length;
+const FELL=SO.filter(e=>e.smallFell<e.largeFell).length, BOUNCE=SO.filter(e=>e.smallAfter>e.largeAfter).length;
+const span=e=>{const a=ym(e.peak).y, b=ym(e.low).y; return a===b?String(b):a+'–'+String(b).slice(2);};
+const needed=f=>(1/(1-f)-1)*100;
+const fFmt=v=>(Math.round(v*10)/10).toString()+'%';
+const fallOf=y=>DATA.smallFalls.find(z=>ym(z.low).y===y);
+
+/* ---------- state ---------- */
+let fall=0, shownF=false, gStep=0, sel=-1;
+let scene=0, reveal=0, gen=0, hookT=0, paused=false;
+
+/* ---------- drawing ---------- */
+function frame(svg,x,y,w,h){svg.appendChild(svgEl('rect',{x,y,width:w,height:h,rx:8,fill:C.panel,stroke:C.line}));}
+function rect(svg,x,y,w,h,fill,op=.9){if(h<=0||w<=0) return; svg.appendChild(svgEl('rect',{x,y,width:w,height:h,rx:3,fill,opacity:op}));}
+function drawHook(svg){
+  const p=(hookT%240)/240, n=Math.floor(clamp((p-.03)/.5,0,1)*N+1e-9), done=n>=N;
+  frame(svg,40,6,920,500);
+  txt(svg,60,34,'13 BIG SELL-OFFS SINCE 1926 — HOW FAR EACH FELL (below) · THE YEAR AFTER THE LOW (above)',12,C.mut2,'start',700,true);
+  const zero=262, k=1.35, cap=150, x0=104, dx=67;
+  svg.appendChild(svgEl('line',{x1:70,y1:zero,x2:940,y2:zero,stroke:C.line2,'stroke-width':1.5}));
+  [100,50,-50].forEach(v=>{txt(svg,64,zero-v*k+4,sgn(v),10,C.mut2,'end',700,true); svg.appendChild(svgEl('line',{x1:70,y1:zero-v*k,x2:940,y2:zero-v*k,stroke:C.line,'stroke-dasharray':'2 6'}));});
+  SO.slice(0,n).forEach((e,i)=>{
+    const cx=x0+i*dx;
+    rect(svg,cx-14,zero,13,-e.smallFell*k,C.ask); rect(svg,cx+1,zero,13,-e.largeFell*k,C.large,.7);
+    const sb=Math.min(e.smallAfter,cap), lb=Math.min(e.largeAfter,cap);
+    rect(svg,cx-14,zero-sb*k,13,sb*k,C.bid); rect(svg,cx+1,zero-lb*k,13,lb*k,C.large,.7);
+    if(e.smallAfter>cap) txt(svg,cx-8,zero-cap*k-8,sgn(e.smallAfter),11,C.bid,'middle',700,true);
+    txt(svg,cx,404,e.label,12,C.mut,'middle',700,true);
+  });
+  rect(svg,700,48,12,12,C.ask); rect(svg,714,48,12,12,C.bid); txt(svg,732,58,'small caps',12,C.txt,'start',700,true);
+  rect(svg,714,68,12,12,C.large,.7); txt(svg,732,78,'large caps',12,C.txt,'start',700,true);
+  txt(svg,60,440,'Fell = each group’s own worst fall around the sell-off.  Year after = the 12 months from the large-cap low.  Bars above +150% are cut.',11,C.mut2,'start',500,true);
+  if(done&&p>.6){svg.appendChild(svgEl('rect',{x:160,y:462,width:680,height:40,rx:10,fill:C.panel,stroke:C.gold,'stroke-width':1.5}));
+    txt(svg,500,489,'FELL FURTHER '+FELL+' OF '+N+' · BOUNCED HARDER '+BOUNCE+' OF '+N,20,C.gold,'middle',700,true);}
+  return done;
+}
+function underwater(svg,i0,i1,opts={}){
+  const X0=100, X1=940, T=50, B=470, ymin=-95;
+  const px=i=>X0+(X1-X0)*(i-i0)/(i1-i0), py=v=>T+(B-T)*(v/ymin);
+  frame(svg,40,6,920,510); txt(svg,60,34,opts.title||'',12,C.mut2,'start',700,true);
+  [0,-25,-50,-75].forEach(v=>{txt(svg,X0-10,py(v)+4,v===0?'peak':sgn(v),11,C.mut2,'end',700,true); svg.appendChild(svgEl('line',{x1:X0,y1:py(v),x2:X1,y2:py(v),stroke:v===0?C.line2:C.line,'stroke-dasharray':v===0?'':'2 6'}));});
+  const step=opts.yearStep||10, y0=ym(i0).y, y1=ym(i1).y;
+  for(let y=Math.ceil(y0/step)*step; y<=y1; y+=step){const i=idxOf(y,0); if(i>=i0&&i<=i1) txt(svg,px(i),B+24,String(y),11,C.mut2,'middle',700,true);}
+  SO.forEach((e,k)=>{if(e.low<i0||e.peak>i1) return; const a=Math.max(e.peak,i0), b=Math.min(e.low,i1);
+    svg.appendChild(svgEl('rect',{x:px(a),y:T,width:Math.max(2,px(b)-px(a)),height:B-T,fill:k===sel?C.gold:C.txt,opacity:k===sel?.16:.05}));});
+  const line=(arr,col,w)=>{const pts=[]; for(let i=i0;i<=i1;i++) pts.push(px(i).toFixed(1)+','+py(arr[i]).toFixed(1)); svg.appendChild(svgEl('polyline',{points:pts.join(' '),fill:'none',stroke:col,'stroke-width':w,'stroke-linejoin':'round'}));};
+  line(DATA.largeDD,C.large,1.6); line(DATA.smallDD,C.ask,1.8);
+  rect(svg,760,24,12,12,C.ask); txt(svg,778,34,'small caps',12,C.txt,'start',700,true);
+  rect(svg,860,24,12,12,C.large,.8); txt(svg,878,34,'large caps',12,C.txt,'start',700,true);
+  return {px,py};
+}
+function drawCentury(svg){
+  const g=underwater(svg,0,DATA.months-1,{title:'HOW FAR BELOW ITS LAST PEAK — EVERY MONTH, JUL 1926 TO AUG 2026'});
+  if(sel>=0){const e=SO[sel];
+    boxed(svg,g.px(e.smallLow)+(e.smallLow>900?-12:12),g.py(DATA.smallDD[e.smallLow])+6,'small '+sgn(e.smallFell),13,C.ask,e.smallLow>900?'end':'start');
+    boxed(svg,g.px(e.low)+(e.low>900?-12:12),g.py(DATA.largeDD[e.low])-22,'large '+sgn(e.largeFell),13,C.large,e.low>900?'end':'start');}
+}
+function drawExceptions(svg){
+  const i0=idxOf(1995,0), i1=DATA.months-1, g=underwater(svg,i0,i1,{title:'THE EXCEPTIONS — 1995 TO 2026',yearStep:5});
+  const by=l=>SO.find(e=>e.label===l);
+  const a=by('2002'), b=by('1998'), c=by('2022');
+  boxed(svg,g.px(a.low)-10,g.py(-62),'2000–02: large fell further ('+sgn(a.largeFell)+' vs '+sgn(a.smallFell)+')',12.5,C.gold,'middle');
+  txt(svg,g.px(a.low)-10,g.py(-62)+22,'the bubble was in big tech',11.5,C.mut,'middle',500,true);
+  boxed(svg,g.px(b.low)+4,g.py(-44),'1998: bounced less (+'+Math.round(b.smallAfter)+'% vs +'+Math.round(b.largeAfter)+'%)',12.5,C.blue,'start');
+  boxed(svg,g.px(c.low)-6,g.py(-48),'2022: bounced less (+'+Math.round(c.smallAfter)+'% vs +'+Math.round(c.largeAfter)+'%)',12.5,C.blue,'end');
+  txt(svg,g.px(c.low)-6,g.py(-48)+22,'rates kept rising into 2023',11.5,C.mut,'end',500,true);
+}
+function drawMaths(svg){
+  const X0=110, X1=930, T=50, B=330, fmax=95, ymax=1000;
+  const px=f=>X0+(X1-X0)*f/fmax, py=v=>B-(B-T)*Math.min(v,ymax)/ymax;
+  frame(svg,40,6,920,360); txt(svg,60,34,'THE RISE YOU NEED TO GET BACK TO WHERE YOU STARTED',12,C.mut2,'start',700,true);
+  [0,250,500,750,1000].forEach(v=>{txt(svg,X0-10,py(v)+4,'+'+v.toLocaleString('en-GB')+'%',11,C.mut2,'end',700,true); svg.appendChild(svgEl('line',{x1:X0,y1:py(v),x2:X1,y2:py(v),stroke:v===0?C.line2:C.line,'stroke-dasharray':v===0?'':'2 6'}));});
+  [0,25,50,75,95].forEach(f=>txt(svg,px(f),B+22,f?'−'+f+'%':'0%',11,C.mut2,'middle',700,true));
+  txt(svg,X1,B+40,'the fall',11,C.mut,'end',700,true);
+  const pts=[]; for(let f=0;f<=fmax;f+=.25){if(needed(f/100)>ymax*1.02) break; pts.push(px(f)+','+py(needed(f/100)));}
+  svg.appendChild(svgEl('polyline',{points:pts.join(' '),fill:'none',stroke:C.gold,'stroke-width':3}));
+  DATA.smallFalls.forEach(s=>{const f=-s.fall; if(needed(f/100)>ymax) return; svg.appendChild(svgEl('circle',{cx:px(f),cy:py(s.needed),r:4.5,fill:C.ask,opacity:.85}));});
+  if(shownF){const v=needed(fall/100);
+    svg.appendChild(svgEl('line',{x1:px(fall),y1:T,x2:px(fall),y2:B,stroke:C.txt,opacity:.45}));
+    svg.appendChild(svgEl('circle',{cx:px(fall),cy:py(v),r:7,fill:C.gold}));
+    boxed(svg,px(fall)-14,v>ymax?T+14:py(v)-14,'−'+fFmt(fall)+' needs '+sgnPct(v),14,C.gold,'end');}
+  else txt(svg,px(58),T+130,'?',72,C.gold,'middle',700,true);
+  // the 2007–09 path
+  const s=DATA.smallFalls.find(z=>ym(z.low).y===2009);
+  frame(svg,40,382,920,150); txt(svg,60,408,'SMALL CAPS, 2007–09 — £100 AT THE PEAK',12,C.mut2,'start',700,true);
+  const low=100*(1+s.fall/100), after=low*(1+s.after/100), base=486, k=.42, bx=[230,460,690];
+  svg.appendChild(svgEl('line',{x1:200,y1:base,x2:840,y2:base,stroke:C.line2}));
+  [['the peak',100,C.large],['the low ('+sgn(s.fall)+')',low,C.ask],['a year later ('+sgn(s.after)+')',after,C.bid]].forEach(([l,v,col],i)=>{
+    txt(svg,bx[i]+60,base+22,l,12,C.mut,'middle',700,true);
+    if(i===2&&!shownF){txt(svg,bx[i]+60,base-12,'?',28,C.gold,'middle',700,true); return;}
+    rect(svg,bx[i],base-v*k,120,v*k,col,.9); txt(svg,bx[i]+60,base-v*k-8,'£'+Math.round(v),15,C.txt,'middle',700,true);});
+  if(shownF) txt(svg,890,base-16,'still '+sgn(s.leftVsPeak),16,C.ask,'middle',700,true);
+}
+function drawPayoff(svg){
+  const s=DATA.smallFalls.find(z=>ym(z.low).y===2009);
+  txt(svg,500,60,'Fell further '+FELL+' of '+N+' · bounced harder '+BOUNCE+' of '+N,36,C.gold,'middle',700,true);
+  txt(svg,500,94,'SMALL vs LARGE US STOCKS · EVERY SELL-OFF OF 15%+ SINCE 1926 · KEN FRENCH DATA LIBRARY',12,C.mut2,'middle',700,true);
+  const a=SO.find(e=>e.label==='2002');
+  const L=[['Small caps fell further in '+FELL+' of '+N+' big sell-offs since 1926','the exception: 2000–02 ('+sgn(a.largeFell)+' vs '+sgn(a.smallFell)+'), when the bubble was in big tech',C.gold],
+    ['They beat large caps in the year after the low in '+BOUNCE+' of '+N,'1987 by a whisker · not in 1998, or in 2022 when rates kept rising',C.blue],
+    ['A '+Math.round(-s.fall)+'% fall needs '+sgnPct(s.needed)+' to get back','so the +'+Math.round(s.after)+'% year after 2009 still left small caps '+Math.round(-s.leftVsPeak)+'% below their peak',C.ask],
+    ['What this can’t tell you: what the next one does','a century of past patterns — not a forecast',C.bid]];
+  L.forEach((l,i)=>{if(reveal<=i) return; const y=124+i*88; svg.appendChild(svgEl('rect',{x:70,y,width:860,height:68,rx:10,fill:C.panel,stroke:l[2],'stroke-width':1.5})); txt(svg,100,y+30,(i+1)+'.  '+l[0],16,l[2],'start',700); txt(svg,100,y+53,l[1],13.5,C.mut,'start');});
+  if(reveal>=5) txt(svg,500,520,'CHALLENGE — small caps fell '+(-fallOf(1932).fall)+'% from 1928 to 1932. What rise did they need to get back? Comments.',14.5,C.txt,'middle',700,true);
+}
+
+const card=(k,v,cls='')=>`<div class="card ${cls}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+const s09=()=>DATA.smallFalls.find(z=>ym(z.low).y===2009);
+const scenes=[
+ {id:'hook',caption:'Thirteen sell-offs. <b>Red against grey.</b>',title:'Small cap vs large cap: every big fall since 1926',sub:'Every time the biggest US companies fell 15% or more: how far small companies fell, how far big ones fell, and what each did in the year after the low.',ctl:false,maxReveal:0,draw:drawHook,
+  cornerK:'Small caps fell further',corner(){return FELL+' of '+N;},
+  side(){const w=SO[0], c=SO.find(e=>e.label==='2020'); return card('Small fell further',FELL+' <small>of '+N+'</small>','bad')+card('Small bounced harder, year after',BOUNCE+' <small>of '+N+'</small>','hero')+card('Worst — 1929–32',sgn(w.smallFell)+' <small>vs '+sgn(w.largeFell)+'</small>','bad')+card('Fastest bounce — 2020',sgn(c.smallAfter)+' <small>vs '+sgn(c.largeAfter)+'</small>','hero')+`<div class="callout"><b>Groups of stocks, not tips.</b> Small = the smallest 30% of US stocks, large = the biggest 30%. Past patterns, not a forecast.</div>`;}},
+ {id:'century',caption:'<b>S</b> — step through the sell-offs',title:'A century, month by month',sub:'How far each group sat below its last peak, every month since July 1926. The shaded bands are the 13 big sell-offs.',ctl:false,maxReveal:0,draw:drawCentury,
+  cornerK:'Small caps fell',corner(){return sel>=0?sgn(SO[sel].smallFell):'—';},
+  side(){if(sel<0) return card('Big sell-offs since 1926',String(N),'gold')+card('Deepest — small caps',sgn(Math.min(...SO.map(e=>e.smallFell))),'bad')+card('Deepest — large caps',sgn(Math.min(...SO.map(e=>e.largeFell))),'')+`<div class="callout">Each band is one sell-off: from the large caps’ peak to their low.</div>`;
+    const e=SO[sel]; return card('Sell-off '+(sel+1)+' of '+N,span(e)+` <small>${mLabel(e.peak)} → ${mLabel(e.low)}</small>`,'gold')+card('Large caps fell',sgn(e.largeFell),'')+card('Small caps fell',sgn(e.smallFell),'bad')+card('Year after the low',sgn(e.smallAfter)+` <small>small · ${sgn(e.largeAfter)} large</small>`,e.smallAfter>e.largeAfter?'hero':'blue');}},
+ {id:'except',caption:'The exceptions — <b>3 of 13</b>',title:'When it didn’t happen',sub:'Twice small caps fell further but bounced less. Once big companies fell further — when the bubble was in big tech.',ctl:false,maxReveal:0,draw:drawExceptions,
+  cornerK:'Exceptions',corner(){return '3 of '+N;},
+  side(){const a=SO.find(e=>e.label==='2002'), b=SO.find(e=>e.label==='1998'), c=SO.find(e=>e.label==='2022'); return card('2000–02 — fell',sgn(a.largeFell)+' <small>large · '+sgn(a.smallFell)+' small</small>','gold')+card('1998 — year after',sgn(b.smallAfter)+' <small>small · '+sgn(b.largeAfter)+' large</small>','blue')+card('2022 — year after',sgn(c.smallAfter)+' <small>small · '+sgn(c.largeAfter)+' large</small>','blue')+`<div class="callout blue"><b>Last video:</b> rates going up hits value that’s far in the future hardest — and in 2022 they kept going up.</div>`;}},
+ {id:'maths',caption:'<b>G</b> — move the fall',title:'The maths of a fall',sub:'A fall and the rise that undoes it aren’t the same size. The red dots are small caps’ own falls of 25% or more since 1926.',ctl:true,maxReveal:0,draw:drawMaths,
+  cornerK:'Rise needed to get back',corner(){return shownF?sgnPct(needed(fall/100)):'?';},
+  side(){const s=s09(); return card('A fall of','−'+fFmt(fall),'bad')+card('Rise needed to get back',shownF?sgnPct(needed(fall/100)):'?','gold')+card('Small caps, 2007–09',sgn(s.fall)+` <small>then ${sgn(s.after)} the year after</small>`,'')+card('Back to the peak after',shownF?s.yearsBack+' <small>years</small>':'?','blue')+`<div class="callout"><b>Prediction:</b> small caps fell 58% in 2007–09, then rose 79% in a year. Were they back?</div>`;}},
+ {id:'payoff',caption:'The payoff — <b>→</b> reveals each line',title:'Further down, harder up — and still not back.',sub:'The pattern held in most of a century’s sell-offs. The maths of a fall is why a big bounce isn’t the same as a recovery.',ctl:false,maxReveal:5,draw:drawPayoff,
+  cornerK:'Bounced harder',corner(){return BOUNCE+' of '+N;},
+  side(){const s=s09(); return card('Fell further',FELL+' <small>of '+N+'</small>','bad')+card('Bounced harder',BOUNCE+' <small>of '+N+'</small>','hero')+card('2007–09: needed',sgnPct(s.needed),'gold')+`<div class="callout warn"><b>Not advice.</b> Groups of US stocks, 1926–2026. How they behaved — not a forecast for any company, index or fund.</div>`;}}
+];
+
+/* ---------- render ---------- */
+function render(){
+  const sc=scenes[scene]; $('title').textContent=sc.title; $('sub').textContent=sc.sub; $('build').textContent=BUILD;
+  $('st-range').textContent=MONTHS[M0].toUpperCase()+' '+Y0+' – '+mLabel(DATA.months-1).toUpperCase();
+  $('st-n').textContent=String(N); $('st-fell').textContent=FELL+' / '+N; $('st-bounce').textContent=BOUNCE+' / '+N;
+  $('scnCount').textContent='SCENE '+(scene+1)+' / '+scenes.length; $('scnCaption').innerHTML=sc.caption; $('side').innerHTML=sc.side();
+  $('ctl-f').classList.toggle('hidden',!sc.ctl);
+  const svg=$('viz'); while(svg.firstChild) svg.removeChild(svg.firstChild);
+  sc.draw(svg);
+  $('cornerK').textContent=sc.cornerK; $('cornerV').textContent=sc.corner(); $('corner').classList.toggle('spot',sc.id==='payoff');
+}
+setInterval(()=>{if(paused||scenes[scene].id!=='hook') return; hookT++; render();},50);
+
+/* ---------- events ---------- */
+function setFill(el){el.style.setProperty('--fill',(100*(el.value-el.min)/(el.max-el.min))+'%');}
+function setF(v){const el=$('fRange'); el.value=v; fall=+el.value; setFill(el); $('fVal').textContent=fall?'−'+fFmt(fall):'0%';}
+function goto(n){scene=Math.max(0,Math.min(scenes.length-1,n)); reveal=0; gen++; tok++;
+  if(scenes[scene].id==='hook') hookT=0;
+  if(scenes[scene].id==='century') sel=-1;
+  if(scenes[scene].id==='maths'){setF(0); shownF=false; gStep=0;}
+  render();}
+function advance(){const sc=scenes[scene]; if(reveal<sc.maxReveal){reveal++; render(); return;} goto(scene+1);}
+function resetScene(){tok++; setF(0); shownF=false; gStep=0; sel=-1; reveal=0; hookT=0; render();}
+$('fRange').addEventListener('input',e=>{fall=+e.target.value; setFill(e.target); $('fVal').textContent=fall?'−'+fFmt(fall):'0%'; if(scenes[scene].id==='maths') shownF=true; render();});
+$('prev').addEventListener('click',()=>goto(scene-1)); $('next').addEventListener('click',advance);
+/* ---------- keyboard slider sweep ----------
+   Same pattern as the *-b02 builds: G sweeps the real slider to the next value
+   the script asks for, at the same pace every take, firing its own input event.
+   R or a scene change stops a sweep. */
+const G_SEQ=[50,-fallOf(2009).fall,-fallOf(1932).fall,-fallOf(1987).fall], MS=2200; let tok=0;
+function sweepG(){
+  const el=$('fRange'), to=G_SEQ[gStep%G_SEQ.length]; gStep++;
+  const from=+el.value, t=++tok, g=gen; if(from===to) return;
+  const t0=performance.now(), put=v=>{if(+el.value===v) return; el.value=v; el.dispatchEvent(new Event('input',{bubbles:true}));};
+  (function f(now){ if(g!==gen||t!==tok) return; const p=Math.min(1,(now-t0)/MS), e=ease(p);
+    put(p<1?Math.round((from+(to-from)*e)*10)/10:to); if(p<1) requestAnimationFrame(f); })(t0);
+}
+document.addEventListener('keydown',e=>{
+  const a=document.activeElement; if(a&&(a.tagName==='INPUT'||a.tagName==='BUTTON')) a.blur();
+  const k=e.key.toLowerCase(), id=scenes[scene].id;
+  if(e.key==='ArrowRight'){e.preventDefault(); advance();} if(e.key==='ArrowLeft'){e.preventDefault(); goto(scene-1);}
+  if(/^[1-5]$/.test(e.key)) goto(+e.key-1);
+  if(k==='s'&&id==='century'){sel=(sel+1)%N; render();}
+  if(k==='g'&&id==='maths') sweepG();
+  if(k==='r') resetScene();
+  if(e.key===' '){e.preventDefault(); paused=!paused;}
+});
+setF(0); goto(0);
+
+/* ---------- sanity ---------- */
+function sanity(){
+  const rows=SO.map(e=>`| ${span(e)} | ${mLabel(e.peak)} → ${mLabel(e.low)} | ${sgn(e.largeFell)} | ${sgn(e.smallFell)} (same months ${sgn(e.smallFellSameMonths)}) | ${e.largeAfter} | ${e.smallAfter} |`);
+  const out=['SANITY — '+N+' sell-offs · small fell further '+FELL+' (same months: '+SO.filter(e=>e.smallFellSameMonths<e.largeFell).length+') · bounced harder '+BOUNCE,
+    '| sell-off | large-cap peak → low | large fell | small fell | large, year after % | small, year after % |','|---|---|---|---|---|---|',...rows,
+    'rise needed: '+[50,...[2009,1932,1987].map(y=>-fallOf(y).fall)].map(f=>fFmt(f)+' → '+sgnPct(needed(f/100))).join(' · '),
+    '2007–09 small caps: '+JSON.stringify(s09())].join('\n');
+  console.log(out); return out;}
+window.sanity=sanity;
+</script>
+</body>
+</html>
